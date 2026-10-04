@@ -6,3 +6,7 @@ runs/
 packs/
 *.zip
 *.safetensors
+*.epub
+*.mobi
+*.azw3
+books/
