@@ -49,7 +49,8 @@ def interpreter_prompt(text, state, pack, beat) -> str:
         f"Characters: {list(pack.characters)}; stats: {list(pack.stats)}; "
         f"beats you may jump to: {list(pack.beats)}\n"
         f"Current scene: {beat.get('text', '')[:400]}\nPlayer action: {text}\n"
-        "If the action is impossible or nonsensical, reply {}.")
+        'Example reply: {"flags": {"searched_room": true}, "message": "You find only dust and an old coin."}\n'
+        "If the action is impossible or nonsensical, reply {}. Output the JSON object and nothing else.")
 
 
 class OllamaInterpreter:

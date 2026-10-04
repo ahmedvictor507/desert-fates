@@ -47,10 +47,16 @@ def main():
     import torch
     bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()  # T4 has no bf16
     rows = [json.loads(l) for l in open(a.data)]
+    # Qwen3 needs its chat template, with thinking off, or it rambles past the token limit.
+    from transformers import AutoTokenizer
+    tok = AutoTokenizer.from_pretrained(a.model)
+    for r in rows:
+        r["prompt"] = tok.apply_chat_template([{"role": "user", "content": r["prompt"]}], tokenize=False,
+                                              add_generation_prompt=True, enable_thinking=False)
     ds = Dataset.from_list(rows)
     cfg = GRPOConfig(output_dir=a.out, max_steps=a.steps, num_generations=8,
                      per_device_train_batch_size=8, learning_rate=1e-5,
-                     max_completion_length=160, logging_steps=5, save_steps=a.save_steps, save_total_limit=2, bf16=bf16, fp16=not bf16)
+                     max_completion_length=200, logging_steps=5, save_steps=a.save_steps, save_total_limit=2, bf16=bf16, fp16=not bf16)
     trainer = GRPOTrainer(model=a.model, reward_funcs=reward_fn, args=cfg, train_dataset=ds,
                           peft_config=LoraConfig(r=16, lora_alpha=32, target_modules="all-linear"))
     resume = os.path.isdir(a.out) and any(d.startswith("checkpoint-") for d in os.listdir(a.out))
