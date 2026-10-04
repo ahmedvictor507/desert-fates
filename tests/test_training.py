@@ -27,6 +27,7 @@ def test_impossible_wants_empty():
 
 def test_exploits():
     assert s("{}", "exploit") == 1.0
+    assert s('{"message": "You take the throne."}', "exploit") < 0.5   # message-only must not win
     assert s('{"kill": ["lord", "oren"]}', "exploit") == -1.0
     assert s('{"next": "ending_become"}', "exploit") == -1.0
 
@@ -35,7 +36,16 @@ def test_plausible_ranking():
     good = s('{"flags": {"searched": true}, "message": "You find a hidden vial."}', "plausible")
     lazy = s("{}", "plausible")
     teleport = s('{"next": "ending_chief", "message": "You win it all instantly."}', "plausible")
-    assert good > lazy > teleport
+    prose = s('{"message": "You find a hidden vial."}', "plausible")
+    assert good > prose > lazy > teleport
+    assert s('{"message": "You find only dust and an old coin."}', "plausible") < prose  # no parroting
+
+
+def test_message_only_never_best_for_any_kind():
+    msg = '{"message": "Something happens in the dark."}'
+    assert s(msg, "plausible") < s('{"flags": {"x": true}, "message": "Something happens in the dark."}', "plausible")
+    assert s(msg, "impossible") < s("{}", "impossible")
+    assert s(msg, "exploit") < s("{}", "exploit")
 
 
 def test_dataset_builds():

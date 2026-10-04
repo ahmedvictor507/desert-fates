@@ -49,7 +49,7 @@ def interpreter_prompt(text, state, pack, beat) -> str:
         f"Characters: {list(pack.characters)}; stats: {list(pack.stats)}; "
         f"beats you may jump to: {list(pack.beats)}\n"
         f"Current scene: {beat.get('text', '')[:400]}\nPlayer action: {text}\n"
-        'Example reply: {"flags": {"searched_room": true}, "message": "You find only dust and an old coin."}\n'
+        'Reply format: {"flags": {"<new_snake_case_flag>": true}, "message": "<one sentence of outcome>"}\n'
         "If the action is impossible or nonsensical, reply {}. Output the JSON object and nothing else.")
 
 

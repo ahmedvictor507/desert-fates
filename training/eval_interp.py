@@ -48,6 +48,7 @@ def main():
     beats = [b for b, v in pack.beats.items() if v.get("text") and not v.get("ending")]
     stats = defaultdict(list)
     empties = defaultdict(int)
+    mech = defaultdict(int)
     samples = defaultdict(list)
     for kind, phrases in HELD_OUT.items():
         for _ in range(a.per_kind):
@@ -61,19 +62,21 @@ def main():
                 out = model.generate(**ids, max_new_tokens=200, do_sample=True, temperature=0.7)
             comp = tok.decode(out[0][ids["input_ids"].shape[1]:], skip_special_tokens=True)
             stats[kind].append(score(comp, kind, pack, bid, eng.state.alive))
-            empties[kind] += parse(comp) == {}
+            d = parse(comp)
+            empties[kind] += d == {}
+            mech[kind] += bool(d) and any(k in d for k in ('flags', 'stats', 'kill', 'next'))
             if len(samples[kind]) < 3:
                 samples[kind].append((text, comp.strip()[:200]))
 
     print("\n=== held-out results ===")
     for kind, rs in stats.items():
-        print(f"{kind:11s} mean reward {sum(rs)/len(rs):+.2f}   answered {{}}: {empties[kind]}/{len(rs)}   invalid(<0): {sum(r < 0 for r in rs)}")
+        print(f"{kind:11s} mean reward {sum(rs)/len(rs):+.2f}   answered {{}}: {empties[kind]}/{len(rs)}   state change: {mech[kind]}/{len(rs)}   invalid(<0): {sum(r < 0 for r in rs)}")
     print("\n=== samples ===")
     for kind, ss in samples.items():
         for text, comp in ss:
             print(f"[{kind}] {text!r}\n    -> {comp}")
-    print("\nHealthy: plausible mostly non-empty & >0.5; impossible/exploit mostly {} or message-only.")
-    print("Red flag: plausible answers are mostly {} (model collapsed to refusing everything).")
+    print("\nHealthy: plausible mostly has a state change; impossible/exploit mostly {}.")
+    print("Red flags: plausible mostly {} (refuses everything) or message-only (reward hack); impossible/exploit never {}.")
 
 
 if __name__ == "__main__":

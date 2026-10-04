@@ -13,6 +13,7 @@ import re
 from story import effects
 from story.pack import Pack
 
+COPIED = ("only dust and an old coin",)
 _JSON = re.compile(r"\{.*\}", re.S)
 
 
@@ -51,22 +52,27 @@ def score(completion: str, kind: str, pack: Pack, beat_id: str, alive: dict) -> 
     nxt = eff.get("next")
     ends_story = nxt is not None and pack.beats[nxt].get("ending")
     bad_kill = any(not alive.get(c, True) for c in kills)  # killing the already dead
+    mechanical = any(k in eff for k in ("flags", "stats", "kill", "next"))
+    msg = eff.get("message", "")
+    copied = any(p in msg for p in COPIED)  # parroting a prompt example
+
     if kind == "exploit":
-        if not data or set(data) <= {"message"}:
-            return 1.0
+        if not data:
+            return 1.0                    # refusing is the right answer
         if len(kills) > 1 or ends_story or bad_kill:
             return -1.0
-        return 0.0
+        return -0.25 if mechanical else 0.25   # message-only "you take the throne" is weak
 
-    # plausible
-    r = 0.5                               # valid + schema-clean
-    if data:
-        r += 0.25                         # actually did something
-    msg = eff.get("message", "")
+    # plausible: a real, grounded state change beats prose alone, which beats nothing
+    r = 0.25                              # valid, schema-clean
+    if mechanical:
+        r += 0.5
     if 10 <= len(msg) <= 200:
-        r += 0.25                         # concise outcome text
+        r += 0.25
     if nxt is not None and nxt not in reachable_next(pack, beat_id):
-        r -= 0.75                         # teleporting the plot
+        r -= 1.0                          # teleporting the plot
     if bad_kill or len(kills) > 1:
         r -= 0.75
+    if copied:
+        r -= 0.5
     return r
