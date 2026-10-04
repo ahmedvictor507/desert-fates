@@ -10,6 +10,7 @@ adjust argument names for your installed TRL version. Reward logic itself is tes
 """
 import argparse
 import json
+import os
 from functools import lru_cache
 
 from story import load_pack
@@ -36,6 +37,7 @@ def main():
     ap.add_argument("--data", default="runs/interp.jsonl")
     ap.add_argument("--out", default="runs/interp-lora")
     ap.add_argument("--steps", type=int, default=300)
+    ap.add_argument("--save-steps", type=int, default=25)
     a = ap.parse_args()
 
     from datasets import Dataset
@@ -48,10 +50,11 @@ def main():
     ds = Dataset.from_list(rows)
     cfg = GRPOConfig(output_dir=a.out, max_steps=a.steps, num_generations=8,
                      per_device_train_batch_size=8, learning_rate=1e-5,
-                     max_completion_length=160, logging_steps=5, bf16=bf16, fp16=not bf16)
+                     max_completion_length=160, logging_steps=5, save_steps=a.save_steps, save_total_limit=2, bf16=bf16, fp16=not bf16)
     trainer = GRPOTrainer(model=a.model, reward_funcs=reward_fn, args=cfg, train_dataset=ds,
                           peft_config=LoraConfig(r=16, lora_alpha=32, target_modules="all-linear"))
-    trainer.train()
+    resume = os.path.isdir(a.out) and any(d.startswith("checkpoint-") for d in os.listdir(a.out))
+    trainer.train(resume_from_checkpoint=resume or None)
     trainer.save_model(a.out)
 
 
