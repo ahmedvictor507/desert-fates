@@ -102,3 +102,23 @@ def test_broken_pack_rejected():
     p = Pack(title="t", intro="", start="a", beats={"a": {"text": "x", "choices": [{"label": "l", "next": "zzz"}]}})
     with pytest.raises(PackError):
         p.validate()
+
+
+def test_unreachable_beat_rejected():
+    beats = {"a": {"text": "", "ending": "A"}, "orphan": {"text": "", "ending": "B"}}
+    with pytest.raises(PackError, match="unreachable"):
+        Pack(title="t", intro="", start="a", beats=beats).validate()
+
+
+def test_global_freeform_target_counts_as_reachable():
+    beats = {"a": {"text": "", "choices": [{"label": "x", "next": "b"}]}, "b": {"text": "", "ending": "B"},
+             "secret": {"text": "", "ending": "S"}}
+    Pack(title="t", intro="", start="a", beats=beats,
+         freeform_rules=[{"keywords": ["x"], "next": "secret"}]).validate()
+
+
+def test_freeform_ignored_after_ending():
+    e = new()
+    while not e.done:
+        e.choose(0)
+    assert e.freeform("pray") is False

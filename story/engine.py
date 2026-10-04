@@ -85,6 +85,8 @@ class StoryEngine:
     def freeform(self, text: str) -> bool:
         """Try a free-text action. Returns True if the world accepted it."""
         self.messages = []
+        if self.done:
+            return False
         proposal = self.interpreter.interpret(text, self.state, self.pack, self.beat)
         if proposal is None:
             self.messages.append("The story resists. Nothing comes of it.")

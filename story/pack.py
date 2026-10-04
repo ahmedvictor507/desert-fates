@@ -38,6 +38,24 @@ class Pack:
             has_exit = beat.get("choices") or beat.get("auto") or beat.get("ending")
             if not has_exit:
                 raise PackError(f"beat {bid!r} is a dead end (no choices/auto/ending)")
+        orphans = sorted(set(self.beats) - self.reachable())
+        if orphans:
+            raise PackError(f"beats unreachable from {self.start!r}: {orphans}")
+
+    def reachable(self) -> set:
+        """Beat ids reachable from start (ignoring conditions)."""
+        anywhere = {r["next"] for r in self.freeform_rules if "next" in r}  # global rules fire from any beat
+        seen, todo = set(), [self.start, *anywhere]
+        while todo:
+            bid = todo.pop()
+            if bid in seen:
+                continue
+            seen.add(bid)
+            beat = self.beats[bid]
+            todo += [c["next"] for c in beat.get("choices", [])]
+            todo += [a["next"] for a in beat.get("auto", [])]
+            todo += [r["next"] for r in beat.get("freeform_rules", []) if "next" in r]
+        return seen
 
 
 def load_pack(name_or_path: str) -> Pack:
