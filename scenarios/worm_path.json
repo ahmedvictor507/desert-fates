@@ -1,0 +1,43 @@
+{
+  "name": "worm_path",
+  "description": "A desert planet of giant sandworms. Gather spice and escape to the sietch... or consume the spice and become something else entirely.",
+  "width": 24,
+  "height": 24,
+  "max_turns": 80,
+  "worms": 2,
+  "spice_patches": 10,
+  "goal_spice": 5,
+  "forms": {
+    "human": {},
+    "worm": {"move_speed": 2, "water_drain": 0, "can_gather": false, "worm_safe": true, "can_drink": false}
+  },
+  "freeform_rules": [
+    {
+      "keywords": ["become the worm", "become a worm", "become worm", "turn into a worm", "transform into a worm"],
+      "requires": {"form": "human", "spice_min": 3},
+      "effect": {
+        "transform": "worm",
+        "stats": {"hp": 5},
+        "unlock": ["sand_swimming"],
+        "flags": {"is_worm": true},
+        "message": "The spice overwhelms you. Your body lengthens, ringed and ancient. The sand parts for you."
+      },
+      "fail_message": "You are not saturated with enough spice to change."
+    },
+    {
+      "keywords": ["ride the worm", "ride a worm", "mount the worm"],
+      "requires": {"form": "human"},
+      "effect": {"stats": {"hp": -3}, "message": "You leap at a passing worm and are thrown off, bruised."}
+    },
+    {
+      "keywords": ["pray", "meditate"],
+      "effect": {"stats": {"water": -1}, "message": "You meditate. Time passes."}
+    }
+  ],
+  "endings": {
+    "sietch_escape": 3.0,
+    "survived_as_worm": 4.0,
+    "survived_as_human": 1.0,
+    "death": -1.0
+  }
+}

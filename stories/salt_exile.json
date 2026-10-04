@@ -1,0 +1,116 @@
+{
+  "title": "Salt Exile",
+  "intro": "An original starter story. House Calder has been handed a dangerous prize: the salt world of Merrow, source of the only substance that lets ships cross the dark. You are Idris Calder, the heir.",
+  "start": "summons",
+  "characters": {
+    "lord": {"name": "Lord Calder", "alive": true},
+    "oren": {"name": "Physician Oren", "alive": true},
+    "sahar": {"name": "Sahar of the Wandering Clans", "alive": true}
+  },
+  "flags": {},
+  "stats": {"trust_clans": 0},
+  "freeform_rules": [
+    {"keywords": ["pray", "meditate"], "effect": {"message": "You steady yourself. Nothing changes, but you feel readier."}}
+  ],
+  "beats": {
+    "summons": {
+      "text": "The Crown's seal arrives at midnight. House Calder is to leave its green homeworld and govern Merrow, a world of salt, glare and leviathans that swim beneath the crust. Your father, Lord Calder, studies you across the table. 'It is an honor,' he says, 'and a trap. Which do you say it is?'",
+      "choices": [
+        {"label": "Urge him to accept. House Calder cannot refuse the Crown.", "next": "arrival", "canon": true},
+        {"label": "Urge him to refuse. The gift smells of poison.", "next": "defiance", "canon": false, "effects": {"flags": {"defied_crown": true}}}
+      ],
+      "freeform_rules": [
+        {"keywords": ["spy", "investigate", "scout"], "effect": {"flags": {"sent_scout": true}, "message": "You send a scout to Merrow ahead of the house."}, "next": "arrival"}
+      ]
+    },
+    "defiance": {
+      "text": "The Crown's answer is swift: House Calder is stripped of its fleet and its lands. Your father grows quiet. 'We can vanish into the archive worlds,' he says, 'or we can crawl back and beg for Merrow.'",
+      "choices": [
+        {"label": "Vanish. Live quietly, and live.", "next": "ending_quiet"},
+        {"label": "Beg for Merrow, disgraced and watched.", "next": "arrival", "effects": {"flags": {"disgraced": true}}}
+      ]
+    },
+    "arrival": {
+      "text": "Merrow is white to the horizon. Heat bends the air, and far out the crust trembles where a leviathan passes. Physician Oren, who has served the world for years, greets you warmly. Beyond the landing field, a clan scout named Sahar watches from the ridge, unwelcome and unmoving.",
+      "choices": [
+        {"label": "Trust Physician Oren. He knows this world.", "next": "betrayal", "effects": {"flags": {"trusts_oren": true}}},
+        {"label": "Slip away and speak with Sahar.", "next": "betrayal", "effects": {"flags": {"met_clans": true}, "stats": {"trust_clans": 2}}, "canon": false}
+      ]
+    },
+    "betrayal": {
+      "text": "",
+      "on_enter": {"kill": ["lord"]},
+      "auto": [
+        {"when": {"flags": {"trusts_oren": true}}, "next": "betrayal_oren"},
+        {"next": "betrayal_raid"}
+      ]
+    },
+    "betrayal_oren": {
+      "text": "At dawn the shield towers go dark. Oren's hands, so gentle for years, hold the key to your father's death. Lord Calder falls in the gallery. Oren does not look at you. 'Forgive me. They hold my family.' Raiders pour through the gates.",
+      "choices": [
+        {"label": "Flee into the salt waste on foot.", "next": "waste", "canon": true},
+        {"label": "Surrender, and hope the raiders keep you alive.", "next": "ending_captive", "canon": false}
+      ]
+    },
+    "betrayal_raid": {
+      "text": "Sahar's warning comes an hour too late to save the house. The raiders strike at dawn and Lord Calder dies defending the gate. But because you met the clans, Sahar's riders are already waiting at the ridge, a dozen of them, with spare water.",
+      "choices": [
+        {"label": "Ride with the clans.", "next": "clan_camp", "effects": {"stats": {"trust_clans": 1}}},
+        {"label": "Fight the raiders alone.", "next": "ending_fallen", "canon": false}
+      ]
+    },
+    "waste": {
+      "text": "The salt cuts through your boots. By the second day you hear singing: a clan patrol, led by Sahar, has found you. Beyond them the crust ripples, a leviathan trail, wide as a river.",
+      "choices": [
+        {"label": "Ask the clans to shelter you.", "next": "clan_camp"},
+        {"label": "Walk toward the leviathan trail alone.", "next": "leviathan_trail", "canon": false}
+      ]
+    },
+    "clan_camp": {
+      "text": "The clans do not trust easily. They make you earn water. Sahar studies you for a long time. 'There is the way of the knife,' she says, 'and there is the old rite, the brine of life. The rite kills most who take it.'",
+      "choices": [
+        {"label": "Train as a clan fighter.", "next": "ending_chief"},
+        {"label": "Take the brine rite.", "next": "leviathan_trail", "effects": {"flags": {"took_rite": true}}, "canon": false}
+      ]
+    },
+    "leviathan_trail": {
+      "text": "The crust shudders. The leviathan rises out of the white, a mile of ringed, ancient flesh, and the whole world holds its breath. You step toward it.",
+      "choices": [
+        {"label": "Reach out to it.", "next": "leviathan_verdict"},
+        {"label": "Turn back and run.", "next": "ending_chief", "canon": false, "when": {"flags": {"took_rite": true}}},
+        {"label": "Turn back and run.", "next": "ending_devoured", "when": {"flags": {"took_rite": false}}}
+      ]
+    },
+    "leviathan_verdict": {
+      "text": "",
+      "auto": [
+        {"when": {"flags": {"took_rite": true}}, "next": "ending_become"},
+        {"next": "ending_devoured"}
+      ]
+    },
+    "ending_quiet": {
+      "text": "You trade a throne for a long life. In a dusty archive world you and your father grow old among books while Merrow's salt feeds other men's ships. Sometimes you wonder what you gave up.",
+      "ending": "The Quiet Life"
+    },
+    "ending_captive": {
+      "text": "The raiders keep you alive because a living Calder is worth more than a dead one. You will spend years as a bargaining piece in someone else's game.",
+      "ending": "The Captive Heir"
+    },
+    "ending_fallen": {
+      "text": "You fight well, and it is not enough. House Calder's last light goes out in the salt.",
+      "ending": "The Last Stand"
+    },
+    "ending_chief": {
+      "text": "Years pass. The clans give you a new name and a knife. When the Crown's fleet finally comes for Merrow, it finds an army of salt and thirst, led by the heir it thought dead.",
+      "ending": "Chief of the Clans"
+    },
+    "ending_devoured": {
+      "text": "The leviathan does not notice you as a person. You are one more small warm thing on the crust. The salt takes the rest.",
+      "ending": "Swallowed by the Salt"
+    },
+    "ending_become": {
+      "text": "The rite burns through you, and where the crust meets your skin something answers. Your bones lengthen. The salt sings. When the clans find the trail at dusk, the great ringed shape that rises to meet them has your eyes. It is no longer Idris Calder, but it remembers him.",
+      "ending": "The Leviathan Within"
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "survive",
+  "description": "Plain survival: gather spice and return to the sietch. No free-form transformations.",
+  "worms": 2,
+  "goal_spice": 3,
+  "forms": {"human": {}},
+  "freeform_rules": [],
+  "endings": {"sietch_escape": 3.0, "survived_as_human": 0.5, "death": -1.0}
+}
