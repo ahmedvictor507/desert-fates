@@ -271,9 +271,19 @@ def draw_prop(surf, name, w, ground, t, stage):
             tx, ty = maw.centerx + math.cos(a) * maw.width * 0.42, maw.centery + math.sin(a) * maw.height * 0.42
             pygame.draw.circle(surf, (235, 220, 190), (int(tx), int(ty)), 3)
     elif name == "tent":
-        x = int(w * 0.62)
-        pygame.draw.ellipse(surf, (120, 105, 85), (x - 90, ground - 80, 180, 120))
-        pygame.draw.line(surf, (90, 75, 60), (x, ground - 80), (x, ground - 30), 2)
+        # a low stilltent, half buried: ribbed dome, dark entrance, sand drifted against it
+        x, base = int(w * 0.62), ground - 6
+        dome = pygame.Rect(x - 95, base - 70, 190, 140)
+        old = surf.get_clip()
+        surf.set_clip(pygame.Rect(0, 0, w, base).clip(old) if old else pygame.Rect(0, 0, w, base))
+        pygame.draw.ellipse(surf, (150, 128, 96), dome)
+        for k in (-60, -25, 25, 60):                      # ribs
+            pygame.draw.arc(surf, (118, 98, 72), dome.inflate(-abs(k) * 2, 0), 0, math.pi, 2)
+        pygame.draw.ellipse(surf, (55, 42, 32), (x - 22, base - 34, 44, 38))
+        surf.set_clip(old)
+        pygame.draw.polygon(surf, (205, 160, 105), [(x - 120, base + 2), (x - 60, base - 18), (x - 10, base + 2)])
+        pygame.draw.polygon(surf, (205, 160, 105), [(x + 30, base + 2), (x + 80, base - 14), (x + 125, base + 2)])
+        pygame.draw.rect(surf, (205, 160, 105), (x - 130, base, 260, 8))
     elif name == "fire":
         for i in range(0, w, 40):
             fh = 40 + 30 * abs(math.sin(t * 3 + i))

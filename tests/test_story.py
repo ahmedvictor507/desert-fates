@@ -260,3 +260,19 @@ def test_improviser_rejects_bad_scenes():
     e = StoryEngine(load_pack("salt_exile"))
     assert Improviser(lambda p: '{"text": "too short", "choice_continue": "a", "choice_return": "b"}').scene(e, "x") is None
     assert Improviser(lambda p: "no json at all").scene(e, "x") is None
+
+
+def test_story_continues_past_an_ending():
+    from story.improv import Improviser, director_prompt
+    e = new()
+    while not e.done:
+        e.choose(0)
+    ending_beat = e.state.beat
+    assert "has ended here" in director_prompt(e.pack, e.state, ending_beat, "go on")
+    reply = json.dumps({"place": "years later", "text": "Years pass, and the salt remembers you. " * 3,
+                        "cast": [], "choice_continue": "Ride out again.", "choice_return": "Rest now."})
+    beat = Improviser(lambda p: reply).scene(e, "Continue the story past this ending.")
+    e.continue_after_ending(beat)
+    assert not e.done and e.state.beat.startswith("improv_")
+    e.choose(1)                                   # "let it rest" leads back to the ending
+    assert e.done and e.state.beat == ending_beat

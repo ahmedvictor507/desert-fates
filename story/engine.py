@@ -110,6 +110,14 @@ class StoryEngine:
             self.state.drift += 1
         self._take(c.get("effects", {}), nxt, c["label"])
 
+    def continue_after_ending(self, improvised: dict) -> None:
+        """The written story ended, but the player wants more: enter an AI-written scene."""
+        if not self.done:
+            raise ValueError("the story has not ended")
+        self.state.ending = None
+        self.state.drift += 1
+        self._take({}, self._add_beat(improvised), "(the story continues)")
+
     def follow(self, action: str, improvised: dict) -> None:
         """Go where the player's own action leads: enter an AI-written scene."""
         self.state.drift += 1

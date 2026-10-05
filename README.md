@@ -74,6 +74,9 @@ The author's story is only the starting line. With `--llm`:
   leads** (`+` in the terminal). The AI writes a brand-new scene with its own place, cast and two
   choices: one ✦ keeps going down your new path (forever, if you like), the other steers back
   toward the original story.
+- **No dead ends.** Every ending, including the end of what the author wrote, offers
+  **✦ Continue the story**: the AI picks up from exactly where you are (who's alive, what you did)
+  and keeps going for as long as you like. One choice in each new scene lets the story rest.
 - **See how far you've come.** Press `M` for the story map: the original story as a line, your
   path through it, and every scene the AI invented for you.
 

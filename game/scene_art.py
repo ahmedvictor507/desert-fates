@@ -65,10 +65,11 @@ def _outdoor(surf, rect, world, night, t, seed):
     if world is WORLDS["desert"]:
         # two moons at night, a white sun by day
         if night:
-            pygame.draw.circle(surf, (230, 225, 210), (rect.right - 140, rect.y + 45), 18)
-            pygame.draw.circle(surf, (200, 195, 185), (rect.right - 90, rect.y + 70), 10)
+            # top-right corner, clear of the centred text panel and the top bar
+            pygame.draw.circle(surf, (230, 225, 210), (rect.right - 120, rect.y + int(rect.height * 0.12)), 18)
+            pygame.draw.circle(surf, (200, 195, 185), (rect.right - 70, rect.y + int(rect.height * 0.16)), 10)
         else:
-            pygame.draw.circle(surf, (255, 250, 230), (rect.right - 160, rect.y + 50), 26)
+            pygame.draw.circle(surf, (255, 250, 230), (rect.right - 100, rect.y + int(rect.height * 0.13)), 26)
         base = rect.y + int(rect.height * 0.55)
         for layer in range(4):
             col = world["ground"][0] if layer % 2 else world["ground"][1]

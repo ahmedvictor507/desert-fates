@@ -154,7 +154,20 @@ def main():
             speak(eng.speech)
         if eng.done:
             print(f"\n--- THE END: {eng.state.ending} (choices away from the original story: {eng.state.drift}) ---")
-            break
+            if not improviser:
+                print("(With the AI narrator, --llm qwen3:1.7b, the story can continue past any ending.)")
+                break
+            raw = input("\n  [+] ✦ Continue the story (the AI writes what happens next), or Enter to finish\n> ").strip()
+            if raw != "+":
+                break
+            print("\n(✦ The story goes on...)")
+            beat = improviser.scene(eng, "Continue the story past this ending.")
+            if not beat:
+                print(f"The AI couldn't write that scene: {improviser.last_error}")
+                break
+            eng.continue_after_ending(beat)
+            shown_scene = None
+            continue
         opts = eng.choices()
         print()
         for i, c in enumerate(opts, 1):

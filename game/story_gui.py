@@ -284,6 +284,25 @@ class StoryGUI:
         self.eng.choose(i)
         self._after_step()
 
+    def continue_story(self):
+        """✦ The written story ended; ask the AI for what happens next."""
+        if not self.improviser:
+            self.toast("Continuing past the written story needs the AI narrator: "
+                       "python3 play_story.py --gui --llm qwen3:1.7b", 9)
+            return
+        if self.busy is not None or not self.eng.done:
+            return
+        action = "Continue the story past this ending."
+
+        def done(beat):
+            if not beat:
+                self.toast(f"The AI couldn't write that scene: {self.improviser.last_error}")
+                return
+            self.stage.exit("walk")
+            self.eng.continue_after_ending(beat)
+            self._after_step()
+        self.run_job("✦ The story goes on", lambda: self.improviser.scene(self.eng, action), done)
+
     def follow(self):
         """✦ Turn the player's last free-text action into a brand-new scene written by the AI."""
         action = self.can_follow
@@ -606,13 +625,19 @@ class StoryGUI:
         title = self.f_title.render(f"THE END: {self.eng.state.ending}", True, ACCENT)
         self.screen.blit(title, (rect.x + 10, rect.y))
         drift = self.f_small.render(f"Choices away from the original story: {self.eng.state.drift}", True, DIM)
-        self.screen.blit(drift, (rect.x + 12, rect.y + 44))
+        self.screen.blit(drift, (rect.right - drift.get_width() - 4, rect.y + 16))
         self.end_buttons = []
-        bw = (rect.width - 24) // 3
+        go_on = pygame.Rect(rect.x, rect.y + 46, rect.width, 40)
+        label = ("✦  Continue the story: the AI writes what happens next" if self.improviser else
+                 "✦  Continue the story (needs the AI narrator: start with --llm qwen3:1.7b)")
+        self._button(go_on, label, go_on.collidepoint(mouse), self.improviser is not None and self.busy is None)
+        self.end_buttons.append((go_on, "continue"))
+        if self.busy:
+            self.screen.blit(self.f_place.render(f"{self.busy}…", True, DIM), (go_on.right - 220, go_on.y + 10))
         bw = (rect.width - 36) // 4
         for i, (label, action) in enumerate([("Story map", "map"), ("Play again", "again"),
                                              ("Another story", "menu"), ("Quit", "quit")]):
-            r = pygame.Rect(rect.x + i * (bw + 12), rect.y + 66, bw, 42)
+            r = pygame.Rect(rect.x + i * (bw + 12), rect.y + 92, bw, 38)
             self._button(r, label, r.collidepoint(mouse))
             self.end_buttons.append((r, action))
 
@@ -800,6 +825,9 @@ class StoryGUI:
             return False
         if action == "map":
             self.show_map = True
+            return True
+        if action == "continue":
+            self.continue_story()
             return True
         if action == "again":
             self.start(self.pack_name)

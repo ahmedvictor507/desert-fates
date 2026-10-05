@@ -33,6 +33,13 @@ def return_target(pack, beat_id: str) -> str:
     return beat_id
 
 
+def _seen_text(beat: dict, state) -> str:
+    """The beat's text as the player saw it (its first matching variant, if any)."""
+    from .effects import conditions_met
+    return next((v["text"] for v in beat.get("variants", []) if conditions_met(v.get("when"), state)),
+                beat.get("text", ""))
+
+
 def director_prompt(pack, state, beat_id: str, action: str) -> str:
     """Shared by inference and training so what is trained is what is run."""
     beat = pack.beats[beat_id]
@@ -41,23 +48,37 @@ def director_prompt(pack, state, beat_id: str, action: str) -> str:
     recent = [label for _, label in state.history[-6:]]
     home = pack.beats.get(return_target(pack, beat_id), {})
     home_hint = re.split(r"(?<=[.!?])\s", home.get("text", "").strip(), maxsplit=1)[0][:200]
+    if home.get("ending"):
+        back = "<one short sentence: an option that lets the story come to rest here>"
+    else:
+        back = ("<one short sentence: an option that steers back toward the original story, "
+                f"which next goes: {home_hint}>")
+    if beat.get("ending"):
+        situation = (f"The written story has ended here (\"{beat['ending']}\"), but the player wants it to "
+                     f"go on: \"{action}\"\n\nWrite the NEXT scene: what happens after this ending. ")
+    else:
+        situation = (f"The player does something the story never planned: \"{action}\"\n\n"
+                     "Write the NEXT scene. Start with the immediate result of that exact action (it may "
+                     "succeed or fail, but it happens), then what it changes. ")
     player = pack.characters.get(pack.player, {}).get("name", "the player")
+    here = [pack.characters[c].get("name", c) for c in present(pack, beat, state) if c != pack.player]
     return (
         f"You are the game master of an interactive story: {pack.title}.\n{pack.intro}\n"
         f"The player is {player}. Characters alive (id: name): {json.dumps(alive)}\n"
         + (f"Dead (they cannot appear or speak): {', '.join(dead)}\n" if dead else "")
         + (f"Recent choices: {' / '.join(recent)}\n" if recent else "")
-        + f"Current scene: {beat.get('text', '')[:500]}\n"
-        f"The player does something the story never planned: \"{action}\"\n\n"
-        "Write the NEXT scene. Start with the immediate result of that exact action (it may succeed or fail, "
-        "but it happens), then what it changes. Stay true to this world's tone, politics and rules. "
+        + (f"With the player right now: {', '.join(here)}. Keep them in the scene unless it says why they "
+           "are gone.\n" if here else "")
+        + f"Current scene: {_seen_text(beat, state)[:500]}\n"
+        + situation +
+        "Stay true to this world's tone, politics and rules. "
         "Consequences can be large: alliances, betrayals, deaths, discoveries.\n"
         "Reply with ONLY a JSON object:\n"
         '{"place": "<where, a few words>", '
         '"text": "<the scene, 80-140 words, second person, present tense, ending at a decision>", '
         '"cast": ["<ids of characters present>"], '
         '"choice_continue": "<one short sentence: a bold option that pushes further down this new path>", '
-        f'"choice_return": "<one short sentence: an option that steers back toward the original story, which next goes: {home_hint}>"}}'
+        f'"choice_return": "{back}"}}'
     )
 
 
@@ -89,12 +110,16 @@ def validate_scene(data, pack, state, return_to: str) -> dict | None:
     home = pack.beats.get(return_to, {}).get("text", "")
     if b and b.rstrip(".…") in home:            # copied the next canon scene instead of an option
         b = "Let events return to the course they were on."
+    if pack.beats.get(return_to, {}).get("ending"):
+        b = b or "Let the story end here."
     proposed = [c for c in data.get("cast", []) if isinstance(c, str) and c in pack.characters
                 and state.alive.get(c, True)]
     # small models often list everyone; keep people the scene names or who were already here
     here = set(present(pack, pack.beats.get(state.beat, {}), state))
     named = set(present(pack, {"text": text}, state))
     cast = [c for c in proposed if c in named or c in here] or [c for c in named if c in pack.characters]
+    if len(cast) <= 1:                          # nobody listed: the people already here stay
+        cast = cast + [c for c in present(pack, pack.beats.get(state.beat, {}), state) if c not in cast]
     if pack.player and state.alive.get(pack.player, True):
         cast = [pack.player] + [c for c in cast if c != pack.player]     # the player always leads
     return {
