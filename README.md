@@ -39,9 +39,16 @@ more of what you type is understood.
 
 | Your computer | Suggested model | Notes |
 |---|---|---|
-| Any laptop, 8 GB RAM, no GPU | `qwen3:1.7b` | Works; a few seconds per scene |
+| Small board / 8 GB RAM (e.g. Jetson Orin Nano) | `qwen3:1.7b` | Measured: 5–8 s per scene on the GPU, ~25 s if it falls back to CPU |
 | 16 GB RAM or a modest GPU | `qwen3:4b` | Recommended default |
-| Gaming GPU (8 GB+ VRAM) | `qwen3:8b` | Best prose |
+| Gaming GPU (8 GB+ VRAM) | `qwen3:8b` | Best prose; try `--book-style` |
+
+Small models write decent atmosphere but sometimes get details wrong; larger models follow the
+scene more closely. If your GPU runs out of memory the game switches to the CPU and tells you;
+closing the web browser usually frees enough memory.
+
+`--book-style` also shows the model a passage from a book you imported, to copy its voice. It
+works poorly with small models (they retell the passage instead of the scene), so it's off by default.
 
 Whatever the AI says is checked by the game's rules before it changes anything, so a confused model
 can't break your save or bring dead characters back.

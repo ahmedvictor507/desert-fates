@@ -67,6 +67,8 @@ def main():
     ap = argparse.ArgumentParser(description="Play a branching story.")
     ap.add_argument("--pack", help="story name (default: choose from a menu)")
     ap.add_argument("--llm", metavar="MODEL", help="Ollama model to narrate and interpret free text, e.g. qwen3:4b")
+    ap.add_argument("--book-style", action="store_true",
+                    help="show the AI a passage of your imported book to copy its voice (best with 8B+ models)")
     ap.add_argument("--list", action="store_true", help="list available stories and exit")
     ap.add_argument("--check", action="store_true", help="check your setup and say what to fix")
     a = ap.parse_args()
@@ -82,19 +84,31 @@ def main():
     pack = load_pack(a.pack or pick_pack())
     kwargs = {}
     if a.llm:
+        from story.engine import ChainInterpreter, RuleInterpreter
         from story.llm import OllamaInterpreter, OllamaNarrator, check_ollama
         problem = check_ollama(a.llm)
         if problem:
             print(f"\n[!] Can't use the AI narrator: {problem}")
             print("[!] Playing without it (the story still works; you just get the plain text).\n")
         else:
-            kwargs = {"interpreter": OllamaInterpreter(a.llm), "narrator": OllamaNarrator(a.llm)}
+            kwargs = {"interpreter": ChainInterpreter(RuleInterpreter(), OllamaInterpreter(a.llm)), "narrator": OllamaNarrator(a.llm, excerpt_chars=1200 if a.book_style else 0)}
             print(f"(AI narrator: {a.llm}. The first scene can take a while on small machines.)")
     eng = StoryEngine(pack, **kwargs)
+    warned = set()
+
+    def warn_once():
+        """Tell the player (once per problem) when the AI had trouble, instead of failing silently."""
+        for part in kwargs.values():
+            notes = [getattr(getattr(part, "generate", None), "notice", None), getattr(part, "last_error", None)]
+            for n in notes:
+                if n and n not in warned:
+                    warned.add(n)
+                    print(f"\n[!] AI narrator: {n}")
 
     print(f"\n=== {pack.title} ===")
     show(pack.intro)
     shown_epigraph = None
+    shown_scene = None   # (beat, history length) whose text is already on screen
     while True:
         for m in eng.messages:
             print()
@@ -104,8 +118,13 @@ def main():
             print()
             show(epi, indent="    ")
             shown_epigraph = epi
-        print()
-        show(eng.text())
+        scene = (eng.state.beat, len([h for h in eng.state.history if not h[1].startswith("(you)")]))
+        if scene != shown_scene or eng.done:
+            text = eng.text()
+            warn_once()
+            print()
+            show(text)
+            shown_scene = scene
         if eng.done:
             print(f"\n--- THE END: {eng.state.ending} (choices away from the original story: {eng.state.drift}) ---")
             break

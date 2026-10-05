@@ -7,6 +7,8 @@ story.effects before it touches game state.
 from __future__ import annotations
 
 import json
+import re
+import urllib.error
 import urllib.request
 
 STYLE = ("Write in a terse, brooding, aristocratic voice: short aphorisms, political "
@@ -17,15 +19,40 @@ class OllamaUnavailable(RuntimeError):
     pass
 
 
-def ollama_generate(model: str, json_mode: bool = False, host: str = "http://localhost:11434"):
-    def gen(prompt: str) -> str:
-        body = {"model": model, "prompt": prompt, "stream": False, "think": False}
+def ollama_generate(model: str, json_mode: bool = False, host: str = "http://localhost:11434",
+                    num_ctx: int = 4096):
+    """Returns generate(prompt) -> str. If the GPU runs out of memory (common on small boards
+    with a desktop open), retries on the CPU and stays there; `gen.notice` says so."""
+    options = {"num_ctx": num_ctx}
+
+    def call(prompt):
+        body = {"model": model, "prompt": prompt, "stream": False, "think": False, "options": options}
         if json_mode:
             body["format"] = "json"
         req = urllib.request.Request(f"{host}/api/generate", json.dumps(body).encode(),
                                      {"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=300) as r:
-            return json.loads(r.read())["response"]
+        try:
+            with urllib.request.urlopen(req, timeout=600) as r:
+                return json.loads(r.read())["response"]
+        except urllib.error.HTTPError as e:
+            try:
+                msg = json.loads(e.read()).get("error", str(e))
+            except Exception:
+                msg = str(e)
+            raise OllamaUnavailable(msg) from None
+
+    def gen(prompt: str) -> str:
+        try:
+            return call(prompt)
+        except OllamaUnavailable as e:
+            if "out of memory" not in str(e) or options.get("num_gpu") == 0:
+                raise
+            options["num_gpu"] = 0
+            gen.notice = ("Not enough GPU memory for the model, so it is running on the CPU (slower). "
+                          "Closing other apps (e.g. the web browser) and restarting the game may fix it.")
+            return call(prompt)
+
+    gen.notice = None
     return gen
 
 
@@ -53,27 +80,34 @@ def _state_summary(state, pack) -> str:
     return "\n".join(parts)
 
 
-def narrator_prompt(text, state, pack, last_choice, excerpt: str = "") -> str:
+def narrator_prompt(text, state, pack, last_choice, excerpt: str = "", place: str = "") -> str:
     """Shared by inference and training so what is trained is what is run."""
-    ref = (f"Reference passage from the original book. Match its voice, rhythm and vocabulary. "
-           f"Do NOT copy its sentences.\n<<<\n{excerpt}\n>>>\n\n" if excerpt else f"{STYLE}\n\n")
-    choice = f"The player just chose: {last_choice}\n" if last_choice else ""
     state_txt = _state_summary(state, pack)
     return (
-        "You are the narrator of an interactive story.\n" + ref +
-        "Rewrite the scene below as second-person prose (\"you\" is the player character), "
-        "150 words or fewer. Keep every fact in the scene. Add no new events, characters or outcomes. "
-        "Do not offer choices; they are shown separately. Output only the prose.\n"
-        + (state_txt + "\n" if state_txt else "") + choice +
-        f"\nScene:\n{text}")
+        "You are the narrator of an interactive novel. Turn the SCENE NOTES into a vivid scene "
+        "of 100-150 words in second person (\"you\" is the player character), present tense.\n"
+        "- Describe the place with the senses: light, heat, smell, sound. Stay true to the PLACE.\n"
+        "- Include one private thought of the player character, written in italics.\n"
+        "- Turn reported speech into one or two short lines of dialogue.\n"
+        "- Keep every event in the notes and who does what to whom. Add no events, people or decisions.\n"
+        "- Stop before the player acts: do not describe what the player does next. Do not list choices.\n"
+        + (f"- Match the voice of this passage from the original book (tone only, never copy its sentences):"
+           f"\n<<<\n{excerpt[:1200]}\n>>>\n" if excerpt else f"- {STYLE}\n")
+        + (state_txt + "\n" if state_txt else "")
+        + (f"The player just chose: {last_choice}\n" if last_choice else "")
+        + (f"\nPLACE: {place}" if place else "")
+        + f"\nSCENE NOTES:\n{text}\n\nSCENE:\n")
 
 
 class OllamaNarrator:
     """Rewrites beat text in the source's voice. Falls back to the pack text on any failure,
     and rejects output that copies 12+ consecutive words from the book."""
 
-    def __init__(self, model: str = "", generate=None):
+    def __init__(self, model: str = "", generate=None, excerpt_chars: int = 0):
+        # excerpt_chars > 0 adds a passage from the imported book as a style reference. Small
+        # models (< 4B) tend to retell the passage instead of the scene, so it is off by default.
         self.generate = generate or ollama_generate(model)
+        self.excerpt_chars = excerpt_chars
         self._cache: dict = {}
         self.last_error: str | None = None
 
@@ -82,12 +116,12 @@ class OllamaNarrator:
         if not text:
             return text
         beat = pack.beats.get(state.beat, {})
-        excerpt = sources.style_excerpt(beat)
+        excerpt = sources.style_excerpt(beat, self.excerpt_chars) if self.excerpt_chars else ""
         key = (state.beat, text, last_choice, tuple(sorted(k for k, v in state.alive.items() if not v)))
         if key in self._cache:
             return self._cache[key]
         try:
-            out = self.generate(narrator_prompt(text, state, pack, last_choice, excerpt)).strip()
+            out = self.generate(narrator_prompt(text, state, pack, last_choice, excerpt, beat.get("place", ""))).strip()
         except Exception as e:
             self.last_error = str(e)
             return text  # fall back to pack prose if the model is unavailable
@@ -109,8 +143,10 @@ def interpreter_prompt(text, state, pack, beat) -> str:
         f"Characters: {list(pack.characters)}; stats: {list(pack.stats)}; "
         f"beats you may jump to: {list(pack.beats)}\n"
         f"Current scene: {beat.get('text', '')[:400]}\nPlayer action: {text}\n"
-        'Reply format: {"flags": {"<new_snake_case_flag>": true}, "message": "<one sentence of outcome>"}\n'
-        "If the action is impossible or nonsensical, reply {}. Output the JSON object and nothing else.")
+        'Reply format: {"flags": {"<short_name_for_what_happened>": true}, "message": "<one sentence of outcome>"}\n'
+        "The action must be physically possible right now, in this scene, with what is here. "
+        "If it is impossible here (e.g. something that is not present), reply {}. "
+        "Output the JSON object and nothing else.")
 
 
 class OllamaInterpreter:
@@ -122,4 +158,21 @@ class OllamaInterpreter:
             data = json.loads(self.generate(interpreter_prompt(text, state, pack, beat)))
         except Exception:
             return None
+        if not isinstance(data, dict):
+            return None
+        if isinstance(data.get("flags"), dict):
+            data["flags"] = clean_flags(data["flags"])
         return data or None
+
+
+_PLACEHOLDER_FLAGS = {"new_snake_case_flag", "short_name_for_what_happened", "flag", "flag_name"}
+
+
+def clean_flags(flags: dict) -> dict:
+    """Normalise model-invented flag names to snake_case and drop copied placeholders."""
+    out = {}
+    for k, v in flags.items():
+        name = re.sub(r"[^a-z0-9]+", "_", str(k).lower()).strip("_")[:40]
+        if name and name not in _PLACEHOLDER_FLAGS and not name[0].isdigit():
+            out[name] = v
+    return out

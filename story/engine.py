@@ -34,6 +34,21 @@ class RuleInterpreter:
         return None
 
 
+class ChainInterpreter:
+    """Tries each interpreter in order; the first proposal wins. Used so a pack's own
+    keyword rules always take priority over an LLM's guess."""
+
+    def __init__(self, *interpreters):
+        self.interpreters = interpreters
+
+    def interpret(self, text, state, pack, beat):
+        for it in self.interpreters:
+            proposal = it.interpret(text, state, pack, beat)
+            if proposal is not None:
+                return proposal
+        return None
+
+
 class IdentityNarrator:
     def narrate(self, text: str, state, pack: Pack, last_choice: str | None) -> str:
         return text

@@ -144,7 +144,7 @@ def test_narrator_gets_matching_excerpt_and_epigraph(tmp_path, monkeypatch):
     from story import sources
     pack = _sourced_pack(tmp_path, monkeypatch)
     prompts = []
-    nar = OllamaNarrator(generate=lambda p: prompts.append(p) or "You feel the needle. She waits.")
+    nar = OllamaNarrator(generate=lambda p: prompts.append(p) or "You feel the needle. She waits.", excerpt_chars=2000)
     e = StoryEngine(pack, narrator=nar)
     assert e.text() == "You feel the needle. She waits."
     assert "needle at the boy's neck" in prompts[0] and "globe" not in prompts[0]   # best-overlap chunk
@@ -157,7 +157,7 @@ def test_narrator_gets_matching_excerpt_and_epigraph(tmp_path, monkeypatch):
 def test_narrator_rejects_verbatim_copy(tmp_path, monkeypatch):
     pack = _sourced_pack(tmp_path, monkeypatch)
     copy = "The old woman held the needle at the boy's neck and waited in the dark room."
-    e = StoryEngine(pack, narrator=OllamaNarrator(generate=lambda p: copy))
+    e = StoryEngine(pack, narrator=OllamaNarrator(generate=lambda p: copy, excerpt_chars=2000))
     assert e.text() == pack.beats["a"]["text"]
 
 
@@ -172,3 +172,44 @@ def test_missing_book_is_harmless(tmp_path, monkeypatch):
 def test_check_ollama_reports_missing_server():
     from story.llm import check_ollama
     assert "not running" in check_ollama("x", host="http://127.0.0.1:9")
+
+
+def test_excerpt_off_by_default(tmp_path, monkeypatch):
+    pack = _sourced_pack(tmp_path, monkeypatch)
+    prompts = []
+    StoryEngine(pack, narrator=OllamaNarrator(generate=lambda p: prompts.append(p) or "ok")).text()
+    assert "needle at the boy's neck" not in prompts[0]
+
+
+def test_gpu_out_of_memory_falls_back_to_cpu(monkeypatch):
+    import io
+    import urllib.error
+    from story import llm
+    sent = []
+
+    def fake_urlopen(req, timeout=0):
+        body = json.loads(req.data)
+        sent.append(body["options"].get("num_gpu"))
+        if body["options"].get("num_gpu") != 0:
+            raise urllib.error.HTTPError("u", 500, "x", {}, io.BytesIO(b'{"error": "cudaMalloc failed: out of memory"}'))
+        return io.BytesIO(b'{"response": "fine"}')
+    monkeypatch.setattr(llm.urllib.request, "urlopen", fake_urlopen)
+    gen = llm.ollama_generate("m")
+    assert gen("p") == "fine" and gen.notice and "CPU" in gen.notice
+    assert gen("p") == "fine" and sent == [None, 0, 0]   # stays on CPU after the first failure
+
+
+def test_interpreter_cleans_flag_names():
+    from story.llm import clean_flags
+    assert clean_flags({"throw Pillow": True, "new_snake_case_flag": True, "1bad": True}) == {"throw_pillow": True}
+
+
+def test_pack_rules_take_priority_over_llm():
+    from story.engine import ChainInterpreter, RuleInterpreter
+    calls = []
+    llm = OllamaInterpreter("x", generate=lambda p: calls.append(p) or '{"message": "llm"}')
+    e = StoryEngine(load_pack("salt_exile"), interpreter=ChainInterpreter(RuleInterpreter(), llm))
+    e.freeform("I pray")
+    assert calls == [] and "readier" in e.messages[0]       # pack rule handled it
+    e.freeform("I juggle three knives")
+    assert calls and e.messages == ["llm"]                    # LLM handles the rest
