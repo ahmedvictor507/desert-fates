@@ -26,6 +26,16 @@ python3 play_story.py
 Pick a story, then at each decision type `1` or `2`, or type whatever you want to try, e.g.
 *"spy on the physician"* or *"walk into the desert"*. Type `q` to quit.
 
+**Prefer a window?** `pip install pygame`, then:
+
+```bash
+python3 play_story.py --gui
+```
+
+Click a choice (or press `1`/`2`), or just start typing and press Enter. The side panel shows
+who is alive, your standing, and how far you've drifted from the original story. `Esc` goes back
+to the story menu.
+
 Not working? Run `python3 play_story.py --check`. It tells you what's missing and how to fix it.
 
 ## Add the AI narrator (optional)
@@ -35,7 +45,7 @@ more of what you type is understood.
 
 1. Install [Ollama](https://ollama.com/download) (Linux: `curl -fsSL https://ollama.com/install.sh | sh`).
 2. Download a model: `ollama pull qwen3:4b` (about 2.5 GB, one time).
-3. Play with it: `python3 play_story.py --llm qwen3:4b`
+3. Play with it: `python3 play_story.py --llm qwen3:4b` (add `--gui` for the window)
 
 | Your computer | Suggested model | Notes |
 |---|---|---|

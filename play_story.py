@@ -69,6 +69,7 @@ def main():
     ap.add_argument("--llm", metavar="MODEL", help="Ollama model to narrate and interpret free text, e.g. qwen3:4b")
     ap.add_argument("--book-style", action="store_true",
                     help="show the AI a passage of your imported book to copy its voice (best with 8B+ models)")
+    ap.add_argument("--gui", action="store_true", help="play in a window instead of the terminal")
     ap.add_argument("--list", action="store_true", help="list available stories and exit")
     ap.add_argument("--check", action="store_true", help="check your setup and say what to fix")
     a = ap.parse_args()
@@ -80,6 +81,13 @@ def main():
         for name, title in list_packs():
             print(f"{name:24} {title}")
         return
+
+    if a.gui:
+        try:
+            from game.story_gui import main as gui_main
+        except ImportError:
+            sys.exit("The window version needs pygame: pip install pygame  (or play in the terminal without --gui)")
+        return gui_main(a.pack, a.llm, a.book_style)
 
     pack = load_pack(a.pack or pick_pack())
     kwargs = {}

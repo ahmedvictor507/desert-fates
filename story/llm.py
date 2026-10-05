@@ -80,6 +80,15 @@ def _state_summary(state, pack) -> str:
     return "\n".join(parts)
 
 
+def _pending(pack, state) -> str:
+    beat = pack.beats.get(state.beat, {})
+    labels = [c["label"] for c in beat.get("choices", [])]
+    if not labels:
+        return ""
+    return ("The player has NOT decided yet between: " + " / ".join(labels) +
+            ". Do not describe the player doing any of these.\n")
+
+
 def narrator_prompt(text, state, pack, last_choice, excerpt: str = "", place: str = "") -> str:
     """Shared by inference and training so what is trained is what is run."""
     state_txt = _state_summary(state, pack)
@@ -95,6 +104,7 @@ def narrator_prompt(text, state, pack, last_choice, excerpt: str = "", place: st
            f"\n<<<\n{excerpt[:1200]}\n>>>\n" if excerpt else f"- {STYLE}\n")
         + (state_txt + "\n" if state_txt else "")
         + (f"The player just chose: {last_choice}\n" if last_choice else "")
+        + _pending(pack, state)
         + (f"\nPLACE: {place}" if place else "")
         + f"\nSCENE NOTES:\n{text}\n\nSCENE:\n")
 
@@ -142,7 +152,10 @@ def interpreter_prompt(text, state, pack, beat) -> str:
         f'"message" (one sentence of outcome), "next" (beat id).\n'
         f"Characters: {list(pack.characters)}; stats: {list(pack.stats)}; "
         f"beats you may jump to: {list(pack.beats)}\n"
-        f"Current scene: {beat.get('text', '')[:400]}\nPlayer action: {text}\n"
+        f"Current scene: {beat.get('text', '')[:400]}\n"
+        + _pending(pack, state) +
+        f"Player action: {text}\n"
+        "Describe only the direct result of this action. Never resolve the undecided choices above.\n"
         'Reply format: {"flags": {"<short_name_for_what_happened>": true}, "message": "<one sentence of outcome>"}\n'
         "The action must be physically possible right now, in this scene, with what is here. "
         "If it is impossible here (e.g. something that is not present), reply {}. "
