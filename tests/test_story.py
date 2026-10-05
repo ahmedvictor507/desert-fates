@@ -230,3 +230,33 @@ def test_freeform_in_place_does_not_rerun_on_enter():
                 freeform_rules=[{"keywords": ["wave"], "effect": {"message": "hi"}}])
     e = StoryEngine(pack)
     assert e.freeform("I wave") and e.state.stats["s"] == 1 and e.trail == []
+
+
+def test_improvised_scene_flow():
+    from story.improv import IMPROVISE, Improviser
+    pack = load_pack("salt_exile")
+    e = StoryEngine(pack)
+    home = pack.beats["summons"]["choices"][0]["next"]          # canon continuation
+    reply = json.dumps({"place": "a salt cave", "text": "You slip away into the dark, and Sahar follows. " * 4,
+                        "cast": ["sahar", "nobody", "lord"], "choice_continue": "Go deeper",
+                        "choice_return": "Go back to your father"})
+    imp = Improviser(lambda p: "Sure! " + reply)
+    beat = imp.scene(e, "I run away to the salt caves")
+    assert beat and beat["choices"][0]["next"] == IMPROVISE and beat["choices"][1]["next"] == home
+    assert beat["stage"]["cast"] == ["sahar", "lord"]            # unknown ids dropped
+    e.follow("I run away to the salt caves", beat)
+    assert e.state.beat == "improv_1" and e.state.drift == 1
+    assert e.needs_improv(0) and not e.needs_improv(1)
+    with pytest.raises(ValueError):
+        e.choose(0)
+    e.choose(0, improvised=imp.scene(e, "Go deeper"))            # endless: another new scene
+    assert e.state.beat == "improv_2"
+    e.choose(1)                                                  # and back to the original story
+    assert e.state.beat == home or home in e.trail
+
+
+def test_improviser_rejects_bad_scenes():
+    from story.improv import Improviser
+    e = StoryEngine(load_pack("salt_exile"))
+    assert Improviser(lambda p: '{"text": "too short", "choice_continue": "a", "choice_return": "b"}').scene(e, "x") is None
+    assert Improviser(lambda p: "no json at all").scene(e, "x") is None

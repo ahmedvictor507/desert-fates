@@ -16,6 +16,8 @@ import zlib
 
 import pygame
 
+from story.cast import TITLES, present
+
 DEFAULT_LOOK = {"robe": (90, 80, 70), "trim": (180, 150, 90), "skin": (225, 190, 160), "hair": (60, 45, 35),
                 "hood": False, "build": 1.0, "height": 1.0, "float": False, "hunch": False,
                 "cape": False, "weapon": None, "long_robe": True}
@@ -30,7 +32,6 @@ PROP_WORDS = {
     "fire": ["burn", "flames", "on fire"], "shield": ["shield"],
 }
 GROUND, FIG_H = 0.76, 0.22   # feet line and figure height, as fractions of window height
-TITLES = {"dr", "lady", "lord", "duke", "baron", "reverend", "mother", "count", "sir", "the", "of", "de", "physician"}
 
 # choice verbs -> exit motion
 MOTIONS = [
@@ -69,30 +70,6 @@ def short_name(cid: str, char: dict) -> str:
         return name
     toks = [t for t in re.split(r"\s+", name) if t.strip(".,").lower() not in TITLES]
     return toks[-1] if toks else name
-
-
-def _name_tokens(name: str) -> list[str]:
-    toks = [t.strip(".,'").lower() for t in re.split(r"[\s-]+", name)]
-    return [t for t in toks if len(t) > 3 and t not in TITLES]
-
-
-def detect_cast(pack, beat: dict, state, player: str) -> list[str]:
-    text = beat.get("text", "")
-    low = text.lower()
-    cast = []
-    pov = re.match(r"\s*\[([^\]]+)\]", text)        # "[Duke Leto] ..." cutaway point of view
-    if pov:
-        who = pov.group(1).lower()
-        cast += [cid for cid, c in pack.characters.items()
-                 if any(t in who for t in _name_tokens(c.get("name", cid)))][:1]
-    elif player:
-        cast.append(player)
-    for cid, c in pack.characters.items():
-        if cid in cast or cid == player:
-            continue
-        if any(re.search(rf"\b{re.escape(t)}\b", low) for t in _name_tokens(c.get("name", cid))):
-            cast.append(cid)
-    return [c for c in cast if state.alive.get(c, True)][:6]
 
 
 def detect_props(beat: dict) -> list[str]:
@@ -317,11 +294,13 @@ class Stage:
         self.ground = int(self.h * GROUND)
         self.t0 = t
         self.seeker_down = False
+        self.speech_queue: list = []
+        self.bubble = None          # (character id, line, start time, duration)
         spec = beat.get("stage") or {}
         self.player = pack.player or next(iter(pack.characters), "")
         cast = spec.get("cast")
         if cast is None:
-            cast = detect_cast(pack, beat, state, self.player)
+            cast = present(pack, beat, state)
         cast = [c for c in cast if c in pack.characters and state.alive.get(c, True)]
         self.props = spec.get("props", detect_props(beat))
         fig_h = int(self.h * FIG_H)
@@ -394,9 +373,74 @@ class Stage:
             p.speed, p.tx = 200, self.w + 150
         return motion
 
-    def update(self, dt):
+    # ---- dialogue: one speech bubble at a time, the speaker steps into a "speak" pose
+    def say(self, lines):
+        """Queue [(character id, line)]; lines from people not on stage are skipped."""
+        on = {a.cid for a in self.actors}
+        self.speech_queue = getattr(self, "speech_queue", []) + [(c, l) for c, l in lines if c in on]
+
+    @property
+    def speaking(self):
+        return bool(getattr(self, "speech_queue", None) or getattr(self, "bubble", None))
+
+    def skip_line(self):
+        if getattr(self, "bubble", None):
+            self.bubble = (*self.bubble[:2], -1e9, 0)
+
+    def _update_speech(self, t):
+        b = getattr(self, "bubble", None)
+        if b and t - b[2] > b[3]:
+            actor = self.actor(b[0])
+            if actor and actor.pose == "speak":
+                actor.pose = None
+            self.bubble = b = None
+        if not b and getattr(self, "speech_queue", None):
+            cid, line = self.speech_queue.pop(0)
+            self.bubble = (cid, line, t, 1.6 + len(line) / 15)
+            actor = self.actor(cid)
+            if actor and actor.pose is None:
+                actor.pose = "speak"
+
+    def actor(self, cid):
+        return next((a for a in self.actors if a.cid == cid), None)
+
+    def draw_bubble(self, surf, font, t):
+        b = getattr(self, "bubble", None)
+        a = self.actor(b[0]) if b else None
+        if not a:
+            return
+        words, lines, cur = b[1].split(), [], ""
+        for w in words:
+            test = f"{cur} {w}".strip()
+            if font.size(test)[0] <= 300 or not cur:
+                cur = test
+            else:
+                lines.append(cur)
+                cur = w
+        lines.append(cur)
+        lh = font.get_linesize()
+        bw = max(font.size(ln)[0] for ln in lines) + 28
+        bh = lh * len(lines) + 20
+        head_y = a.y - a.h * a.look["height"] * 0.85
+        side = 1 if a.x < self.w / 2 else -1                # bubble toward the middle of the screen
+        bx = a.x + side * 40 if side > 0 else a.x - 40 - bw
+        bx = max(8, min(self.w - bw - 8, bx))
+        by = max(48, head_y - bh - 6)
+        pop = min(1.0, (t - b[2]) * 6)                     # quick pop-in
+        rect = pygame.Rect(int(bx), int(by + (1 - pop) * 10), bw, bh)
+        pygame.draw.polygon(surf, (246, 238, 222), [(a.x + side * 14, head_y),
+                                                    (rect.centerx - 10 * side, rect.bottom - 2),
+                                                    (rect.centerx + 12 * side, rect.bottom - 2)])
+        pygame.draw.rect(surf, (246, 238, 222), rect, border_radius=12)
+        pygame.draw.rect(surf, (120, 95, 70), rect, 2, border_radius=12)
+        for i, ln in enumerate(lines):
+            surf.blit(font.render(ln, True, (35, 28, 22)), (rect.x + 14, rect.y + 10 + i * lh))
+
+    def update(self, dt, t=None):
         for a in self.actors:
             a.update(dt)
+        if t is not None:
+            self._update_speech(t)
 
     def draw(self, surf, t, font=None):
         back = [p for p in self.props if p in ("ornithopter", "crawler", "worm", "fire", "globe", "tent", "table")]

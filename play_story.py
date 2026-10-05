@@ -13,6 +13,8 @@ import textwrap
 from story import StoryEngine, load_pack
 from story.pack import list_packs
 from story import sources
+from story.cast import scene_dialogue
+from story.improv import IMPROVISE
 
 WIDTH = 88
 
@@ -102,6 +104,11 @@ def main():
             kwargs = {"interpreter": ChainInterpreter(RuleInterpreter(), OllamaInterpreter(a.llm)), "narrator": OllamaNarrator(a.llm, excerpt_chars=1200 if a.book_style else 0)}
             print(f"(AI narrator: {a.llm}. The first scene can take a while on small machines.)")
     eng = StoryEngine(pack, **kwargs)
+    improviser = None
+    if kwargs:
+        from story.improv import Improviser
+        from story.llm import ollama_generate
+        improviser = Improviser(ollama_generate(a.llm, json_mode=True))
     warned = set()
 
     def warn_once():
@@ -117,6 +124,13 @@ def main():
     show(pack.intro)
     shown_epigraph = None
     shown_scene = None   # (beat, history length) whose text is already on screen
+    can_follow = None    # last accepted free-text action the AI could turn into a new scene
+
+    def speak(lines):
+        for cid, line in lines:
+            c = pack.characters.get(cid, {})
+            show(f'    {c.get("short") or c.get("name", cid)}: "{line}"')
+
     while True:
         for m in eng.messages:
             print()
@@ -128,26 +142,55 @@ def main():
             shown_epigraph = epi
         scene = (eng.state.beat, len([h for h in eng.state.history if not h[1].startswith("(you)")]))
         if scene != shown_scene or eng.done:
-            text = eng.text()
+            prose, lines = scene_dialogue(eng.text(), pack, eng.beat, eng.state)
             warn_once()
             print()
-            show(text)
+            show(prose)
+            if lines:
+                print()
+                speak(lines)
             shown_scene = scene
+        elif eng.speech:
+            speak(eng.speech)
         if eng.done:
             print(f"\n--- THE END: {eng.state.ending} (choices away from the original story: {eng.state.drift}) ---")
             break
         opts = eng.choices()
         print()
         for i, c in enumerate(opts, 1):
-            show(f"  [{i}] {c['label']}")
+            show(f"  [{i}] {'✦ ' if c['next'] == IMPROVISE else ''}{c['label']}")
+        if can_follow:
+            print("  [+] ✦ See where that leads (the AI writes a new scene)")
         print("  [or type anything else you want to try, 'q' to quit]")
         raw = input("> ").strip()
         if raw.lower() in {"q", "quit"}:
             break
-        if raw.isdigit() and 1 <= int(raw) <= len(opts):
-            eng.choose(int(raw) - 1)
+        if raw == "+" and can_follow:
+            print("\n(✦ The story is changing...)")
+            beat = improviser.scene(eng, can_follow)
+            if beat:
+                eng.follow(can_follow, beat)
+            else:
+                eng.messages = [f"The AI couldn't write that scene: {improviser.last_error}"]
+            can_follow = None
+        elif raw.isdigit() and 1 <= int(raw) <= len(opts):
+            i = int(raw) - 1
+            if eng.needs_improv(i):
+                if not improviser:
+                    eng.messages = ["This path needs the AI narrator (--llm)."]
+                    continue
+                print("\n(✦ The story is changing...)")
+                beat = improviser.scene(eng, opts[i]["label"])
+                if not beat:
+                    eng.messages = [f"The AI couldn't write that scene: {improviser.last_error}"]
+                    continue
+                eng.choose(i, improvised=beat)
+            else:
+                eng.choose(i)
+            can_follow = None
         elif raw:
-            eng.freeform(raw)
+            accepted = eng.freeform(raw)
+            can_follow = raw if accepted and improviser and not eng.trail else None
 
 
 if __name__ == "__main__":

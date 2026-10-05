@@ -11,6 +11,7 @@ narration is written while the transition plays.
 """
 from __future__ import annotations
 
+import math
 import os
 import re
 import threading
@@ -20,6 +21,8 @@ os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 import pygame  # noqa: E402
 
 from story import StoryEngine, load_pack, sources  # noqa: E402
+from story.cast import present, scene_dialogue  # noqa: E402
+from story.improv import IMPROVISE  # noqa: E402
 from story.pack import list_packs  # noqa: E402
 
 from .scene_art import draw_scene  # noqa: E402
@@ -63,6 +66,35 @@ def wrap(text: str, font, width: int) -> list[str]:
     return lines
 
 
+_SPEECH = re.compile(r"^\s*(i\s+)?(say|shout|whisper|reply|answer|call out)\b|[\"“]", re.I)
+
+
+def _is_speech(text: str) -> bool:
+    return bool(_SPEECH.search(text))
+
+
+def _spoken_words(text: str) -> str:
+    m = re.search(r"[\"“]([^\"”]+)[\"”]", text)
+    if m:
+        return m.group(1)
+    return re.sub(r"^\s*(i\s+)?(say|shout|whisper|reply|answer|call out)\s*(to \w+)?[,:]?\s*", "", text,
+                  flags=re.I).strip()
+
+
+def canon_path(pack) -> list[str]:
+    """Beats of the original story, in order: always take the canon choice."""
+    eng = StoryEngine(pack)
+    path = list(eng.trail) or [pack.start]
+    for _ in range(200):
+        if eng.done:
+            break
+        opts = eng.choices()
+        i = next((k for k, c in enumerate(opts) if c.get("canon", True) and c["next"] != IMPROVISE), 0)
+        eng.choose(i)
+        path += eng.trail
+    return path
+
+
 def _panel(surf, rect, color=PANEL, radius=14):
     s = pygame.Surface(rect.size, pygame.SRCALPHA)
     pygame.draw.rect(s, color, s.get_rect(), border_radius=radius)
@@ -84,10 +116,16 @@ class StoryGUI:
         self.f_place = _font(serif, 17, italic=True)
         self.f_ui = _font(sans, 16)
         self.f_small = _font(sans, 13)
+        self.f_bubble = _font(sans, 15)
         self.clock = pygame.time.Clock()
         self.llm = llm
         self._startup_warning = None
         self.kwargs = self._ai_parts(llm, book_style)
+        self.improviser = None
+        if "narrator" in self.kwargs:
+            from story.improv import Improviser
+            from story.llm import ollama_generate
+            self.improviser = Improviser(ollama_generate(llm, json_mode=True))
         self.toasts: list[tuple[str, float]] = []
         self.busy: str | None = None
         self._job_result = None
@@ -96,6 +134,7 @@ class StoryGUI:
         self.scroll = 0
         self.max_scroll = 0
         self.details = False
+        self.show_map = False
         self.mode = "menu"
         self.packs = list_packs()
         self.t = 0.0
@@ -131,6 +170,9 @@ class StoryGUI:
         self.phase, self.phase_t = "play", self.t
         self.stage = None
         self.showing = None
+        self.visited = [self.eng.state.beat]
+        self.pending_dialogue = []
+        self.can_follow = None          # the last free-text action the AI could turn into a new scene
         if self._startup_warning:
             self.toast(self._startup_warning, 9)
             self._startup_warning = None
@@ -198,15 +240,19 @@ class StoryGUI:
         if epi and epi != self.shown_epigraph:
             self.card, self.card_until = epi, self.t + CARD_SECS
             self.shown_epigraph = epi
+        self.pending_dialogue = []
         if self.queue:                                  # a cutaway: its own text, then Continue
             self.page.append(("scene", beat.get("text", "")))
+            self.pending_dialogue = [tuple(x) for x in beat.get("dialogue", [])]
         elif self.final_text and self.final_text[0] == beat_id:
             self._reveal_final()
         self.phase, self.phase_t = "fade_in", self.t
 
     def _reveal_final(self):
         if not any(k == "scene" for k, _ in self.page):
-            self.page.append(("scene", self.final_text[1]))
+            prose, lines = scene_dialogue(self.final_text[1], self.pack, self.eng.beat, self.eng.state)
+            self.page.append(("scene", prose))
+            self.pending_dialogue = lines
             self.reveal_t = self.t
 
     @property
@@ -219,13 +265,45 @@ class StoryGUI:
         opts = self.eng.choices()
         if not 0 <= i < len(opts):
             return
-        self.stage.exit(opts[i]["label"])
+        label = opts[i]["label"]
+        if self.eng.needs_improv(i):
+            if not self.improviser:
+                self.toast("This path needs the AI narrator (--llm).")
+                return
+
+            def done(beat):
+                if not beat:
+                    self.toast(f"The AI couldn't write that scene: {self.improviser.last_error}")
+                    return
+                self.stage.exit(label)
+                self.eng.choose(i, improvised=beat)
+                self._after_step()
+            self.run_job("✦ The story is changing", lambda: self.improviser.scene(self.eng, label), done)
+            return
+        self.stage.exit(label)
         self.eng.choose(i)
         self._after_step()
+
+    def follow(self):
+        """✦ Turn the player's last free-text action into a brand-new scene written by the AI."""
+        action = self.can_follow
+        if not action or not self.improviser or self.busy is not None or self.phase != "play":
+            return
+
+        def done(beat):
+            if not beat:
+                self.toast(f"The AI couldn't write that scene: {self.improviser.last_error}")
+                return
+            self.stage.exit(action)
+            self.eng.follow(action, beat)
+            self._after_step()
+        self.run_job("✦ The story is changing", lambda: self.improviser.scene(self.eng, action), done)
 
     def _after_step(self):
         """After the engine moved: queue cutaways + the new scene, start narrating, play the exit."""
         eng = self.eng
+        self.visited += eng.trail
+        self.can_follow = None
         cut = [b for b in eng.trail[:-1] if self.pack.beats[b].get("text")]
         cut_texts = {self.pack.beats[b]["text"] for b in cut}
         self.pending_msgs = [("message", m) for m in eng.messages if m not in cut_texts]
@@ -245,6 +323,9 @@ class StoryGUI:
         if self.revealing():
             self.reveal_t = -1e9
             return
+        if self.stage and self.stage.speaking:
+            self.stage.skip_line()
+            return
         if self.is_cutaway:
             self.stage.exit("walk")
             self.phase, self.phase_t = "exit", self.t
@@ -259,15 +340,21 @@ class StoryGUI:
         self.reveal_t = self.t
         self.scroll = 10 ** 6
 
-        def after(_):
+        def after(accepted):
             if self.eng.trail:                          # a pack rule moved the story on
                 self.stage.exit(text)
                 self._after_step()
-            else:
-                self.page += [("message", m) for m in self.eng.messages]
-                self.reveal_t = self.t
-                self.scroll = 10 ** 6
-                self._warn_ai()
+                return
+            self.page += [("message", m) for m in self.eng.messages]
+            self.reveal_t = self.t
+            self.scroll = 10 ** 6
+            self._warn_ai()
+            spoken = list(self.eng.speech)
+            if _is_speech(text) and self.pack.player:
+                spoken.insert(0, (self.pack.player, _spoken_words(text)))
+            self.pending_dialogue += spoken
+            if accepted and self.improviser:
+                self.can_follow = text
         self.run_job("Considering what you tried" if "interpreter" in self.kwargs else "",
                      lambda: self.eng.freeform(text), after)
 
@@ -276,7 +363,10 @@ class StoryGUI:
         if self.mode != "story":
             return
         if self.stage:
-            self.stage.update(dt)
+            self.stage.update(dt, self.t)
+            if (self.pending_dialogue and self.phase == "play" and not self.card and not self.revealing()):
+                self.stage.say(self.pending_dialogue)
+                self.pending_dialogue = []
         el = self.t - self.phase_t
         if self.phase == "exit" and el >= EXIT_SECS:
             self.phase, self.phase_t = "fade_out", self.t
@@ -312,11 +402,15 @@ class StoryGUI:
                     self.draw_ending(bottom_r)
                 else:
                     self.draw_controls(bottom_r)
+            if self.phase == "play" and not self.card:
+                self.stage.draw_bubble(self.screen, self.f_bubble, t)
             if self.card and self.phase in ("play", "fade_in"):
                 self.draw_card()
             self.draw_fade()
             if self.details:
                 self.draw_details()
+            if self.show_map:
+                self.draw_map()
         self.draw_toasts()
         pygame.display.flip()
 
@@ -355,7 +449,7 @@ class StoryGUI:
         _panel(self.screen, pygame.Rect(10, 8, w - 20, 34), (0, 0, 0, 120), 10)
         place = self.place.split(":")[0].split(",")[0]
         self.screen.blit(self.f_place.render(f"{self.pack.title}  ·  {place}", True, INK), (24, 14))
-        right = f"Drift {self.eng.state.drift}   ·   Tab: details   ·   Esc: menu"
+        right = f"Drift {self.eng.state.drift}   ·   M: story map   ·   Tab: details   ·   Esc: menu"
         surf = self.f_small.render(right, True, DIM)
         self.screen.blit(surf, (w - surf.get_width() - 24, 17))
 
@@ -483,9 +577,17 @@ class StoryGUI:
         y = rect.y
         for i, c in enumerate(opts):
             r = pygame.Rect(rect.x + (i % cols) * (bw + 12), y + (i // cols) * 56, bw, 50)
-            self._button(r, f"{i + 1}.  {c['label']}", r.collidepoint(mouse), enabled)
+            mark = "✦ " if c["next"] == IMPROVISE else ""
+            self._button(r, f"{i + 1}.  {mark}{c['label']}", r.collidepoint(mouse), enabled)
             self.choice_buttons.append(r)
         y += ((len(opts) + cols - 1) // cols) * 56
+        self.follow_button = None
+        if self.can_follow:
+            r = pygame.Rect(rect.x, y, rect.width, 40)
+            self._button(r, "✦  See where this leads: the AI writes a new scene from what you did",
+                         r.collidepoint(mouse), enabled)
+            self.follow_button = r
+            y += 46
         box = pygame.Rect(rect.x, y, rect.width, 40)
         _panel(self.screen, box, (20, 16, 13, 215), 10)
         pygame.draw.rect(self.screen, ACCENT if self.input else (95, 76, 58), box, 1, border_radius=10)
@@ -507,7 +609,9 @@ class StoryGUI:
         self.screen.blit(drift, (rect.x + 12, rect.y + 44))
         self.end_buttons = []
         bw = (rect.width - 24) // 3
-        for i, (label, action) in enumerate([("Play again", "again"), ("Choose another story", "menu"), ("Quit", "quit")]):
+        bw = (rect.width - 36) // 4
+        for i, (label, action) in enumerate([("Story map", "map"), ("Play again", "again"),
+                                             ("Another story", "menu"), ("Quit", "quit")]):
             r = pygame.Rect(rect.x + i * (bw + 12), rect.y + 66, bw, 42)
             self._button(r, label, r.collidepoint(mouse))
             self.end_buttons.append((r, action))
@@ -540,6 +644,74 @@ class StoryGUI:
         foot = f"AI narrator: {self.llm}" if "narrator" in self.kwargs else "Plain text (no AI)"
         self.screen.blit(self.f_small.render(f"Drift from the original: {s.drift}    ·    {foot}", True, DIM),
                          (x, r.bottom - 30))
+
+    def draw_map(self):
+        """The original story as a line, your path through it, and every scene the AI invented."""
+        w, h = self.screen.get_size()
+        veil = pygame.Surface((w, h), pygame.SRCALPHA)
+        veil.fill((6, 5, 4, 252))
+        self.screen.blit(veil, (0, 0))
+        if getattr(self, "_canon_for", None) is not self.pack:
+            self._canon, self._canon_for = canon_path(self.pack), self.pack
+        canon = [b for b in self._canon if not self.pack.beats[b].get("ending")] + \
+                [b for b in self._canon if self.pack.beats[b].get("ending")]
+        title = self.f_title.render("Your story and the original", True, INK)
+        self.screen.blit(title, (40, 30))
+        x0, x1, y0 = 70, w - 70, 150
+        step = (x1 - x0) / max(1, len(canon) - 1)
+        pos = {b: (x0 + i * step, y0) for i, b in enumerate(canon)}
+        # the original story
+        pygame.draw.line(self.screen, (90, 80, 70), (x0, y0), (x1, y0), 3)
+        for b, (x, y) in pos.items():
+            pygame.draw.circle(self.screen, (120, 108, 95), (int(x), y), 7)
+        self.screen.blit(self.f_small.render("THE ORIGINAL STORY", True, DIM), (x0, y0 - 34))
+        # the player's path: canon beats sit on the line; others branch below it
+        depth, last_x, pts, invented, off = 0, x0, [], 0, 0
+        seen = []
+        for b in self.visited:
+            if seen and seen[-1] == b:
+                continue
+            seen.append(b)
+            beat = self.pack.beats[b]
+            if b in pos and not beat.get("improvised"):
+                x, y = pos[b]
+                depth = 0
+            else:
+                depth = min(depth + 1, 7)
+                x, y = min(x1, last_x + step * 0.8), y0 + 60 * depth
+                off += 1
+                invented += bool(beat.get("improvised"))
+            pts.append((x, y, b))
+            last_x = x
+        for (xa, ya, _), (xb, yb, _) in zip(pts, pts[1:]):
+            pygame.draw.line(self.screen, ACCENT, (int(xa), int(ya)), (int(xb), int(yb)), 3)
+        for i, (x, y, b) in enumerate(pts):
+            beat = self.pack.beats[b]
+            if beat.get("improvised"):
+                r = 9 + 2 * math.sin(self.t * 4 + i)
+                pygame.draw.circle(self.screen, (255, 210, 120), (int(x), int(y)), int(r))
+                pygame.draw.circle(self.screen, (255, 245, 210), (int(x), int(y)), 4)
+            elif beat.get("ending"):
+                pygame.draw.rect(self.screen, ACCENT, (int(x) - 8, int(y) - 8, 16, 16))
+            else:
+                pygame.draw.circle(self.screen, ACCENT, (int(x), int(y)), 8)
+        if pts:
+            x, y, _ = pts[-1]
+            here = self.f_small.render("you are here", True, INK)
+            self.screen.blit(here, (int(x) - here.get_width() // 2, int(y) + 14))
+        endings = [b for b in self.pack.beats if self.pack.beats[b].get("ending")]
+        reached = {b for b in seen if b in endings}
+        stats = [f"Scenes you have seen: {len(seen)}",
+                 f"Off the original path: {off}",
+                 f"Scenes the AI invented for you: {invented}  (no one else has read them)",
+                 f"Endings written by the author: {len(endings)}  ·  found: {len(reached)}",
+                 "Endings the AI can invent: unlimited. Type anything, then press ✦."]
+        yy = h - 40 - 26 * len(stats)
+        for s in stats:
+            self.screen.blit(self.f_ui.render(s, True, INK if "AI" not in s else ACCENT), (40, yy))
+            yy += 26
+        hint = self.f_small.render("click or press M to close", True, DIM)
+        self.screen.blit(hint, (w - hint.get_width() - 40, h - 36))
 
     def draw_toasts(self):
         now = time.time()
@@ -576,20 +748,32 @@ class StoryGUI:
             self.scroll -= e.y * 40
         elif e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
             if self.eng.done and not self.is_cutaway and self._text_shown() and not self.card:
+                if self.show_map:
+                    self.show_map = False
+                    return True
                 for r, action in getattr(self, "end_buttons", []):
                     if r.collidepoint(e.pos):
                         return self._end_action(action)
+                return True
+            if self.show_map:
+                self.show_map = False
                 return True
             for i, r in enumerate(getattr(self, "choice_buttons", [])):
                 if r.collidepoint(e.pos) and not self.revealing():
                     self.choose(i)
                     return True
+            fb = getattr(self, "follow_button", None)
+            if fb and fb.collidepoint(e.pos):
+                self.follow()
+                return True
             self.advance()                       # click anywhere else: skip / continue
         elif e.type == pygame.KEYDOWN:
             if e.key == pygame.K_ESCAPE:
                 self.mode = "menu"
             elif e.key == pygame.K_TAB:
                 self.details = not self.details
+            elif e.unicode in ("m", "M") and not self.input:
+                self.show_map = not self.show_map
             elif e.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                 if self.input:
                     self.submit()
@@ -614,6 +798,9 @@ class StoryGUI:
     def _end_action(self, action):
         if action == "quit":
             return False
+        if action == "map":
+            self.show_map = True
+            return True
         if action == "again":
             self.start(self.pack_name)
         else:

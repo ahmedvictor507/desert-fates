@@ -64,6 +64,7 @@ class StoryEngine:
             alive={cid: c.get("alive", True) for cid, c in pack.characters.items()})
         self.messages: list[str] = []
         self.trail: list[str] = []   # beats entered during the last step, incl. auto pass-throughs
+        self.speech: list[tuple[str, str]] = []   # (character id, line) spoken during the last step
         self._last_choice: str | None = None
         self._enter(pack.start)
 
@@ -89,19 +90,42 @@ class StoryEngine:
         return [c for c in self.beat.get("choices", []) if effects.conditions_met(c.get("when"), self.state)]
 
     # ---------------------------------------------------------------- acting
-    def choose(self, index: int) -> None:
+    def needs_improv(self, index: int) -> bool:
+        """True if this choice leads somewhere the AI has to write first (see story.improv)."""
+        from .improv import IMPROVISE
+        opts = self.choices()
+        return 0 <= index < len(opts) and opts[index]["next"] == IMPROVISE
+
+    def choose(self, index: int, improvised: dict | None = None) -> None:
         opts = self.choices()
         if self.done or not 0 <= index < len(opts):
             raise IndexError("no such choice")
         c = opts[index]
+        nxt = c["next"]
+        if self.needs_improv(index):
+            if improvised is None:
+                raise ValueError("this choice needs an improvised scene (story.improv.Improviser)")
+            nxt = self._add_beat(improvised)
         if not c.get("canon", True):
             self.state.drift += 1
-        self._take(c.get("effects", {}), c["next"], c["label"])
+        self._take(c.get("effects", {}), nxt, c["label"])
+
+    def follow(self, action: str, improvised: dict) -> None:
+        """Go where the player's own action leads: enter an AI-written scene."""
+        self.state.drift += 1
+        self._take({}, self._add_beat(improvised), f"(you) {action}")
+
+    def _add_beat(self, beat: dict) -> str:
+        n = sum(1 for b in self.pack.beats if b.startswith("improv_")) + 1
+        bid = f"improv_{n}"
+        self.pack.beats[bid] = beat
+        return bid
 
     def freeform(self, text: str) -> bool:
         """Try a free-text action. Returns True if the world accepted it."""
         self.messages = []
         self.trail = []
+        self.speech = []
         if self.done:
             return False
         proposal = self.interpreter.interpret(text, self.state, self.pack, self.beat)
@@ -123,10 +147,14 @@ class StoryEngine:
         """Apply an effect, then enter `nxt` (None = stay in the current scene without re-entering it)."""
         self.messages = []
         self.trail = []
+        self.speech = []
         eff = effects.validate(effect, self.pack)
         effects.apply(self.state, eff)
         if "message" in eff:
             self.messages.append(eff["message"])
+        say = eff.get("say")
+        if say and self.state.alive.get(say["who"], True):   # the dead stay silent
+            self.speech.append((say["who"], say["line"]))
         self.state.history.append((self.state.beat, label))
         self._last_choice = label
         if nxt is not None:

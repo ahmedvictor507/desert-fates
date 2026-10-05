@@ -64,6 +64,22 @@ works poorly with small models (they retell the passage instead of the scene), s
 Whatever the AI says is checked by the game's rules before it changes anything, so a confused model
 can't break your save or bring dead characters back.
 
+## Endless stories (with the AI)
+
+The author's story is only the starting line. With `--llm`:
+
+- **Characters talk.** Each scene's characters speak (speech bubbles in the window), and if you
+  talk to someone, e.g. *ask Mohiam what is in the box*, they answer.
+- **Go off the map.** After you do something the story never planned, press **✦ See where this
+  leads** (`+` in the terminal). The AI writes a brand-new scene with its own place, cast and two
+  choices: one ✦ keeps going down your new path (forever, if you like), the other steers back
+  toward the original story.
+- **See how far you've come.** Press `M` for the story map: the original story as a line, your
+  path through it, and every scene the AI invented for you.
+
+Invented scenes go through the same checks as everything else: only characters who exist and are
+alive can appear, and the AI can't skip you around the author's story.
+
 ## Using your own books
 
 If you own a book as an EPUB file, you can import it **locally** so stories based on it show the
@@ -87,6 +103,9 @@ A story is one JSON file. Copy `stories/salt_exile.json` into `packs/` (private)
 - **effects**: set `flags`, change `stats`, `kill` or `revive` characters, show a `message`.
 - **variants**: alternate text for a beat when conditions hold (e.g. a character is dead).
 - **freeform_rules**: keywords that make typed actions work without an AI model.
+- **dialogue** (optional): `[["mohiam", "Your right hand. Into the box."], ...]` spoken lines
+  for the scene (used when no AI is narrating). Characters can have `aliases` (e.g.
+  `"the reverend mother"`) so the AI's dialogue is matched to the right person.
 - **source** (optional): `{"book": "dune", "chapters": [15]}` links a beat to an imported book.
 - **place** (optional): where the scene happens, e.g. `"a stilltent in the deep desert, night"`.
   It picks the window's backdrop (sea world, desert, night, indoors…) and keeps the AI on setting.

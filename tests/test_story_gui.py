@@ -44,7 +44,13 @@ def test_window_plays_salt_exile_to_an_ending():
         assert g.phase == "exit"                          # choosing starts the exit animation
         settle(g)
     assert g.eng.done and g.end_buttons
-    g.handle(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=g.end_buttons[0][0].center))
+    buttons = dict((action, r) for r, action in g.end_buttons)
+    g.handle(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=buttons["map"].center))
+    assert g.show_map
+    g.draw()                                              # the story map renders
+    g.handle(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=(5, 5)))
+    assert not g.show_map
+    g.handle(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=buttons["again"].center))
     settle(g)
     assert not g.eng.done                                 # "Play again" restarted
     pygame.quit()
@@ -104,3 +110,53 @@ def test_short_names():
     assert short_name("x", {"name": "Reverend Mother Gaius Helen Mohiam"}) == "Mohiam"
     assert short_name("x", {"name": "Gurney Halleck"}) == "Gurney Halleck"
     assert short_name("x", {"name": "Duke Leto Atreides", "short": "Duke Leto"}) == "Duke Leto"
+
+
+def test_dialogue_bubbles_and_ai_paths(tmp_path):
+    import json
+    from game.story_gui import StoryGUI
+    from story.improv import Improviser
+    from story.pack import SEARCH_DIRS
+    pack = {"title": "Talk", "intro": "", "start": "a", "player": "hero",
+            "characters": {"hero": {"name": "Hero"}, "sage": {"name": "Old Sage"}},
+            "beats": {"a": {"text": "The Old Sage waits.", "dialogue": [["sage", "Speak, child."], ["ghost", "boo"]],
+                            "choices": [{"label": "Bow", "next": "end"}, {"label": "Leave", "next": "end"}]},
+                      "end": {"text": "Done.", "ending": "E"}}}
+    p = SEARCH_DIRS[1] / "_test_talk.json"
+    p.write_text(json.dumps(pack))
+    try:
+        g = StoryGUI("_test_talk")
+        settle_until_speech = 0
+        for _ in range(60):
+            g._poll_job()
+            g.tick(0.1)
+            if g.stage.bubble:
+                settle_until_speech = 1
+                break
+            if g.phase == "play" and (g.card or g.revealing()):
+                g.advance()
+        assert settle_until_speech and g.stage.bubble[0] == "sage"       # unknown speaker skipped
+        g.draw()
+        # free text accepted -> the ✦ follow button appears when an AI is available
+        reply = json.dumps({"place": "a cave", "text": "The Old Sage leads you into a cave of echoes. " * 3,
+                            "cast": ["sage"], "choice_continue": "Go deeper.", "choice_return": "Go back."})
+        g.improviser = Improviser(lambda prompt: reply)
+        g.eng.pack.freeform_rules.append({"keywords": ["sing"], "effect": {"message": "You sing."}})
+        settle(g)
+        for ch in "I sing":
+            key(g, ch)
+        g.handle(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN, unicode="\r"))
+        settle(g)
+        assert g.can_follow == "I sing"
+        g.follow()
+        settle(g)
+        assert g.showing.startswith("improv_") and "cave" in g.place
+        assert g.eng.needs_improv(0)                     # its first choice keeps improvising
+        key(g, "1")
+        settle(g)
+        assert g.showing == "improv_2"
+        g.show_map = True
+        g.draw()
+    finally:
+        p.unlink()
+        pygame.quit()

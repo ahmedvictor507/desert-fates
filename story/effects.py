@@ -2,7 +2,7 @@
 only this module changes state, and only after validation."""
 from __future__ import annotations
 
-ALLOWED_KEYS = {"flags", "stats", "kill", "revive", "message", "next"}
+ALLOWED_KEYS = {"flags", "stats", "kill", "revive", "message", "next", "say"}
 MAX_DELTA = 5
 
 
@@ -41,6 +41,11 @@ def validate(effect: dict, pack) -> dict:
         out["next"] = effect["next"]
     if "message" in effect:
         out["message"] = str(effect["message"])[:300]
+    say = effect.get("say")
+    if say:                       # a character speaks a line aloud (shown as dialogue)
+        if not (isinstance(say, dict) and say.get("who") in pack.characters and isinstance(say.get("line"), str)):
+            raise EffectError("say must be {who: <character id>, line: <text>}")
+        out["say"] = {"who": say["who"], "line": say["line"].strip()[:200]}
     return out
 
 

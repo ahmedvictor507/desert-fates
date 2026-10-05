@@ -20,10 +20,10 @@ class OllamaUnavailable(RuntimeError):
 
 
 def ollama_generate(model: str, json_mode: bool = False, host: str = "http://localhost:11434",
-                    num_ctx: int = 4096):
+                    num_ctx: int = 4096, max_tokens: int = 700):
     """Returns generate(prompt) -> str. If the GPU runs out of memory (common on small boards
     with a desktop open), retries on the CPU and stays there; `gen.notice` says so."""
-    options = {"num_ctx": num_ctx}
+    options = {"num_ctx": num_ctx, "num_predict": max_tokens}   # cap: JSON mode can run away
 
     def call(prompt):
         body = {"model": model, "prompt": prompt, "stream": False, "think": False, "options": options}
@@ -89,9 +89,23 @@ def _pending(pack, state) -> str:
             ". Do not describe the player doing any of these.\n")
 
 
-def narrator_prompt(text, state, pack, last_choice, excerpt: str = "", place: str = "") -> str:
+def _names(pack, ids):
+    return ", ".join(pack.characters[c].get("short") or pack.characters[c].get("name", c) for c in ids)
+
+
+def narrator_prompt(text, state, pack, last_choice, excerpt: str = "", place: str = "",
+                    speakers: list | None = None) -> str:
     """Shared by inference and training so what is trained is what is run."""
     state_txt = _state_summary(state, pack)
+    others = [c for c in (speakers or []) if c != pack.player]
+    first = _names(pack, others[:1])
+    me = _names(pack, [pack.player]) if pack.player else ""
+    dialogue = (
+        "\nAfter the prose, write DIALOGUE: on its own line, then 2 or 3 short lines spoken aloud, one per "
+        f"line, like this:\nDIALOGUE:\n{first}: <what {first} says>\n" + (f"{me}: <what you say>\n" if me else "")
+        + f"Only these people may speak: {_names(pack, others)}" + (f" and {me}" if me else "")
+        + (f". They call the player {me}" if me else "") + ". The words must fit the scene notes.\n"
+    ) if others else ""
     return (
         "You are the narrator of an interactive novel. Turn the SCENE NOTES into a vivid scene "
         "of 100-150 words in second person (\"you\" is the player character), present tense.\n"
@@ -106,6 +120,7 @@ def narrator_prompt(text, state, pack, last_choice, excerpt: str = "", place: st
         + (f"The player just chose: {last_choice}\n" if last_choice else "")
         + _pending(pack, state)
         + (f"\nPLACE: {place}" if place else "")
+        + dialogue
         + f"\nSCENE NOTES:\n{text}\n\nSCENE:\n")
 
 
@@ -123,15 +138,17 @@ class OllamaNarrator:
 
     def narrate(self, text, state, pack, last_choice):
         from . import sources
+        from .cast import present
         if not text:
             return text
         beat = pack.beats.get(state.beat, {})
+        speakers = present(pack, beat, state)
         excerpt = sources.style_excerpt(beat, self.excerpt_chars) if self.excerpt_chars else ""
         key = (state.beat, text, last_choice, tuple(sorted(k for k, v in state.alive.items() if not v)))
         if key in self._cache:
             return self._cache[key]
         try:
-            out = self.generate(narrator_prompt(text, state, pack, last_choice, excerpt, beat.get("place", ""))).strip()
+            out = self.generate(narrator_prompt(text, state, pack, last_choice, excerpt, beat.get("place", ""), speakers)).strip()
         except Exception as e:
             self.last_error = str(e)
             return text  # fall back to pack prose if the model is unavailable
@@ -143,19 +160,28 @@ class OllamaNarrator:
         return out
 
 
+def _present_ids(pack, beat, state):
+    from .cast import present
+    return [c for c in present(pack, beat, state) if c != pack.player]
+
+
 def interpreter_prompt(text, state, pack, beat) -> str:
     """Shared by inference and RL training so what is trained is what is run."""
     return (
         "You are the rules arbiter of an interactive story. The player tries an "
         "action. Reply with ONLY a JSON object with optional keys: "
         '"flags" (str->bool), "stats" (str->int), "kill" (list of character ids), '
-        f'"message" (one sentence of outcome).\n'
+        '"message" (one sentence of outcome), '
+        '"say" ({"who": id of a person present, "line": the words they answer aloud}).\n'
         f"Characters: {list(pack.characters)}; stats: {list(pack.stats)}\n"
+        f"Present in this scene: {_present_ids(pack, beat, state)}\n"
         f"Current scene: {beat.get('text', '')[:400]}\n"
         + _pending(pack, state) +
         f"Player action: {text}\n"
         "Describe only the direct result of this action. Never resolve the undecided choices above.\n"
         'Reply format: {"flags": {"<short_name_for_what_happened>": true}, "message": "<one sentence of outcome>"}\n'
+        'If the player speaks to someone present, that person answers aloud, e.g. '
+        '{"message": "<one sentence>", "say": {"who": "<their id>", "line": "<their answer>"}}\n'
         "The action must be physically possible right now, in this scene, with what is here. "
         "If it is impossible here (e.g. something that is not present), reply {}. "
         "Output the JSON object and nothing else.")
@@ -177,6 +203,14 @@ class OllamaInterpreter:
         # Only the pack's own choices and rules move the story between scenes; a model
         # picking a beat id skips whole scenes (seen in play: jumped past two beats).
         data.pop("next", None)
+        say = data.get("say")
+        if say is not None and not (isinstance(say, dict) and say.get("who") in _present_ids(pack, beat, state)):
+            data.pop("say")                          # only people in the scene can answer
+        if "say" not in data and isinstance(data.get("message"), str):
+            from .cast import present, speech_from_message
+            rest, spoken = speech_from_message(data["message"], text, pack, present(pack, beat, state))
+            if spoken:
+                data["message"], data["say"] = rest or data["message"], {"who": spoken[0], "line": spoken[1]}
         return data or None
 
 
