@@ -24,6 +24,7 @@ class Pack:
     flags: dict = field(default_factory=dict)
     stats: dict = field(default_factory=dict)
     freeform_rules: list = field(default_factory=list)  # global keyword rules
+    player: str = ""   # character id the player plays (drawn on stage); default: first character
 
     def validate(self) -> None:
         if self.start not in self.beats:

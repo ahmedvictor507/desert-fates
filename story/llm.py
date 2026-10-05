@@ -149,9 +149,8 @@ def interpreter_prompt(text, state, pack, beat) -> str:
         "You are the rules arbiter of an interactive story. The player tries an "
         "action. Reply with ONLY a JSON object with optional keys: "
         '"flags" (str->bool), "stats" (str->int), "kill" (list of character ids), '
-        f'"message" (one sentence of outcome), "next" (beat id).\n'
-        f"Characters: {list(pack.characters)}; stats: {list(pack.stats)}; "
-        f"beats you may jump to: {list(pack.beats)}\n"
+        f'"message" (one sentence of outcome).\n'
+        f"Characters: {list(pack.characters)}; stats: {list(pack.stats)}\n"
         f"Current scene: {beat.get('text', '')[:400]}\n"
         + _pending(pack, state) +
         f"Player action: {text}\n"
@@ -175,6 +174,9 @@ class OllamaInterpreter:
             return None
         if isinstance(data.get("flags"), dict):
             data["flags"] = clean_flags(data["flags"])
+        # Only the pack's own choices and rules move the story between scenes; a model
+        # picking a beat id skips whole scenes (seen in play: jumped past two beats).
+        data.pop("next", None)
         return data or None
 
 

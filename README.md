@@ -32,9 +32,10 @@ Pick a story, then at each decision type `1` or `2`, or type whatever you want t
 python3 play_story.py --gui
 ```
 
-Click a choice (or press `1`/`2`), or just start typing and press Enter. The side panel shows
-who is alive, your standing, and how far you've drifted from the original story. `Esc` goes back
-to the story menu.
+Characters appear in each scene and react to your choices (running off, stepping forward,
+leaving together) before the story fades to the next scene. Click a choice (or press `1`/`2`),
+or just start typing and press Enter. `Tab` shows who is alive and your standing; `Esc` goes
+back to the story menu.
 
 Not working? Run `python3 play_story.py --check`. It tells you what's missing and how to fix it.
 
@@ -87,6 +88,14 @@ A story is one JSON file. Copy `stories/salt_exile.json` into `packs/` (private)
 - **variants**: alternate text for a beat when conditions hold (e.g. a character is dead).
 - **freeform_rules**: keywords that make typed actions work without an AI model.
 - **source** (optional): `{"book": "dune", "chapters": [15]}` links a beat to an imported book.
+- **place** (optional): where the scene happens, e.g. `"a stilltent in the deep desert, night"`.
+  It picks the window's backdrop (sea world, desert, night, indoors…) and keeps the AI on setting.
+- **stage** (optional): `{"cast": ["hero", "guard"], "props": ["worm", "ornithopter"]}`. Without
+  it, the window finds characters named in the text. Props: box, seeker, globe, table,
+  ornithopter, crawler, worm, tent, fire, shield.
+- **player** (top level) is the character you play; characters can have a `short` name for tags
+  and a `look` (`robe`, `trim`, `hair` colours; `hood`, `cape`, `float`, `hunch`; `build`,
+  `height`; `weapon`).
 
 The game checks your file when it loads: broken links, dead ends and unreachable scenes are reported
 with the beat's name.

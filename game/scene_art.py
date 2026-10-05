@@ -126,13 +126,25 @@ def _indoor_frame(surf, rect, world):
     pygame.draw.line(surf, _darken(wall, 0.6), (win.centerx, win.y + 10), (win.centerx, win.bottom), 4)
 
 
-def draw_scene(surf: pygame.Surface, rect: pygame.Rect, place: str, t: float) -> None:
+def _floor(surf, rect, world, floor_y):
+    """A floor for indoor scenes so figures stand on something."""
+    base = _darken(world["ground"][0], 0.55)
+    _gradient(surf, pygame.Rect(rect.x, floor_y, rect.width, rect.bottom - floor_y), _lerp(base, (90, 80, 70), 0.3), _darken(base, 0.6))
+    pygame.draw.line(surf, _lerp(base, (200, 180, 150), 0.35), (rect.x, floor_y), (rect.right, floor_y), 2)
+    cx = rect.centerx
+    for i in range(-8, 9):          # floor boards in perspective
+        pygame.draw.line(surf, _darken(base, 0.75), (cx + i * 60, floor_y), (cx + i * 160, rect.bottom), 1)
+
+
+def draw_scene(surf: pygame.Surface, rect: pygame.Rect, place: str, t: float, floor_y: int | None = None) -> None:
     world, indoor, night = classify(place or "")
     old_clip = surf.get_clip()
     surf.set_clip(rect)
     _outdoor(surf, rect, world, night, t, seed=zlib.crc32(place.encode()))
     if indoor:
         _indoor_frame(surf, rect, world)
+        if floor_y:
+            _floor(surf, rect, world, floor_y)
     shade = pygame.Surface((rect.width, 60), pygame.SRCALPHA)
     for y in range(60):
         pygame.draw.line(shade, (0, 0, 0, int(160 * y / 60)), (0, y), (rect.width, y))

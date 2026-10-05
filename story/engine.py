@@ -63,6 +63,7 @@ class StoryEngine:
             beat=pack.start, flags=dict(pack.flags), stats=dict(pack.stats),
             alive={cid: c.get("alive", True) for cid, c in pack.characters.items()})
         self.messages: list[str] = []
+        self.trail: list[str] = []   # beats entered during the last step, incl. auto pass-throughs
         self._last_choice: str | None = None
         self._enter(pack.start)
 
@@ -100,6 +101,7 @@ class StoryEngine:
     def freeform(self, text: str) -> bool:
         """Try a free-text action. Returns True if the world accepted it."""
         self.messages = []
+        self.trail = []
         if self.done:
             return False
         proposal = self.interpreter.interpret(text, self.state, self.pack, self.beat)
@@ -113,23 +115,27 @@ class StoryEngine:
             return False
         self.state.drift += 1
         nxt = eff.pop("next", None)
-        self._take(eff, nxt or self.state.beat, f'(you) {text}')
+        self._take(eff, nxt, f'(you) {text}')
         return True
 
     # -------------------------------------------------------------- internals
-    def _take(self, effect: dict, nxt: str, label: str) -> None:
+    def _take(self, effect: dict, nxt: str | None, label: str) -> None:
+        """Apply an effect, then enter `nxt` (None = stay in the current scene without re-entering it)."""
         self.messages = []
+        self.trail = []
         eff = effects.validate(effect, self.pack)
         effects.apply(self.state, eff)
         if "message" in eff:
             self.messages.append(eff["message"])
         self.state.history.append((self.state.beat, label))
         self._last_choice = label
-        self._enter(nxt)
+        if nxt is not None:
+            self._enter(nxt)
 
     def _enter(self, beat_id: str) -> None:
         for _ in range(50):  # auto-route chain, guard against cycles
             self.state.beat = beat_id
+            self.trail.append(beat_id)
             beat = self.pack.beats[beat_id]
             on_enter = effects.validate(beat.get("on_enter", {}), self.pack)
             effects.apply(self.state, on_enter)

@@ -213,3 +213,20 @@ def test_pack_rules_take_priority_over_llm():
     assert calls == [] and "readier" in e.messages[0]       # pack rule handled it
     e.freeform("I juggle three knives")
     assert calls and e.messages == ["llm"]                    # LLM handles the rest
+
+
+def test_llm_cannot_jump_scenes():
+    e = new()
+    start = e.state.beat
+    llm = OllamaInterpreter("x", generate=lambda p: '{"message": "ok", "next": "ending_chief"}')
+    e.interpreter = llm
+    assert e.freeform("teleport me to the end") and e.state.beat == start
+
+
+def test_freeform_in_place_does_not_rerun_on_enter():
+    beats = {"a": {"text": "", "on_enter": {"stats": {"s": 1}}, "choices": [{"label": "x", "next": "b"}, {"label": "y", "next": "b"}]},
+             "b": {"text": "", "ending": "B"}}
+    pack = Pack(title="t", intro="", start="a", beats=beats, stats={"s": 0},
+                freeform_rules=[{"keywords": ["wave"], "effect": {"message": "hi"}}])
+    e = StoryEngine(pack)
+    assert e.freeform("I wave") and e.state.stats["s"] == 1 and e.trail == []
