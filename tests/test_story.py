@@ -122,3 +122,53 @@ def test_freeform_ignored_after_ending():
     while not e.done:
         e.choose(0)
     assert e.freeform("pray") is False
+
+
+def _sourced_pack(tmp_path, monkeypatch):
+    from story import sources
+    book = [{"index": 1, "part": "", "title": "Chapter 1", "epigraph": "A quote.\n\n—SOMEONE",
+             "source": "SOMEONE", "scenes": [],
+             "chunks": ["The old woman held the needle at the boy's neck and waited in the dark room.",
+                        "Elsewhere a fat man turned a globe of the desert world with his ringed hand."]}]
+    (tmp_path / "bk").mkdir()
+    (tmp_path / "bk" / "chapters.json").write_text(json.dumps(book))
+    monkeypatch.setattr(sources, "PACKS", tmp_path)
+    sources.load_book.cache_clear()
+    beats = {"a": {"text": "A needle at your neck; an old woman waits.", "source": {"book": "bk", "chapters": [1]},
+                   "choices": [{"label": "x", "next": "end"}, {"label": "y", "next": "end"}]},
+             "end": {"text": "Done.", "ending": "E"}}
+    return Pack(title="t", intro="", start="a", beats=beats, characters={"leto": {"name": "Leto", "alive": False}})
+
+
+def test_narrator_gets_matching_excerpt_and_epigraph(tmp_path, monkeypatch):
+    from story import sources
+    pack = _sourced_pack(tmp_path, monkeypatch)
+    prompts = []
+    nar = OllamaNarrator(generate=lambda p: prompts.append(p) or "You feel the needle. She waits.")
+    e = StoryEngine(pack, narrator=nar)
+    assert e.text() == "You feel the needle. She waits."
+    assert "needle at the boy's neck" in prompts[0] and "globe" not in prompts[0]   # best-overlap chunk
+    assert "Dead (never show them acting" in prompts[0] and "Leto" in prompts[0]
+    e.text()
+    assert len(prompts) == 1                                                         # cached
+    assert sources.epigraph(e.beat).startswith("A quote.")
+
+
+def test_narrator_rejects_verbatim_copy(tmp_path, monkeypatch):
+    pack = _sourced_pack(tmp_path, monkeypatch)
+    copy = "The old woman held the needle at the boy's neck and waited in the dark room."
+    e = StoryEngine(pack, narrator=OllamaNarrator(generate=lambda p: copy))
+    assert e.text() == pack.beats["a"]["text"]
+
+
+def test_missing_book_is_harmless(tmp_path, monkeypatch):
+    from story import sources
+    pack = _sourced_pack(tmp_path, monkeypatch)
+    monkeypatch.setattr(sources, "PACKS", tmp_path / "nowhere")
+    sources.load_book.cache_clear()
+    assert sources.epigraph(pack.beats["a"]) == "" and sources.style_excerpt(pack.beats["a"]) == ""
+
+
+def test_check_ollama_reports_missing_server():
+    from story.llm import check_ollama
+    assert "not running" in check_ollama("x", host="http://127.0.0.1:9")

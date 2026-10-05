@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "desert-fates"
+version = "0.1.0"
+description = "Local, branching interactive fiction: two choices plus anything you can type, with an optional local LLM narrator."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = []   # the story game needs only the standard library
+
+[project.optional-dependencies]
+game = ["pygame>=2.5"]                      # survival mini-game
+dev = ["pytest"]
+
+[project.scripts]
+desert-fates = "play_story:main"
+desert-fates-ingest = "ingest:main"
+
+[tool.setuptools]
+py-modules = ["play_story", "ingest", "play", "evaluate"]
+
+[tool.setuptools.packages.find]
+include = ["story*", "engine*", "env*", "agents*", "game*", "training*"]

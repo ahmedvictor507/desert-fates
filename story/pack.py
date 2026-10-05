@@ -70,3 +70,15 @@ def load_pack(name_or_path: str) -> Pack:
     pack = Pack(**json.loads(p.read_text()))
     pack.validate()
     return pack
+
+
+def list_packs() -> list[tuple[str, str]]:
+    """[(name, title)] of every loadable pack in stories/ and packs/."""
+    out = []
+    for d in SEARCH_DIRS:
+        for p in sorted(d.glob("*.json")):
+            try:
+                out.append((p.stem, json.loads(p.read_text())["title"]))
+            except (ValueError, KeyError):
+                continue
+    return out

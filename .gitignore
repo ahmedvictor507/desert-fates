@@ -10,3 +10,6 @@ packs/
 *.mobi
 *.azw3
 books/
+*.egg-info/
+build/
+dist/
