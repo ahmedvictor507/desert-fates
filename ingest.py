@@ -5,7 +5,7 @@
 Chapters come from the book's own table of contents (part, chapter label, epigraph via CSS
 classes). Books without a usable TOC fall back to text heuristics.
 
-Output stays on your machine. Never commit it or upload it to Colab/cloud services.
+Output stays in packs/ (git-ignored). Never commit or share it; if you train on it (training/colab_books.ipynb), keep it in your own private storage.
 """
 import argparse
 import json

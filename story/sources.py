@@ -33,6 +33,12 @@ def _chapters(beat: dict) -> list[dict]:
     return [book[i] for i in src.get("chapters", []) if i in book]
 
 
+def source_text(beat: dict) -> str:
+    """All of the beat's source chapters as one text ("" if the book isn't imported)."""
+    return "\n\n".join("\n\n".join([c.get("epigraph", "")] + list(c.get("scenes") or c.get("chunks") or []))
+                         for c in _chapters(beat))
+
+
 def epigraph(beat: dict) -> str:
     """The first source chapter's epigraph, if the book is available locally."""
     return next((c["epigraph"] for c in _chapters(beat) if c.get("epigraph")), "")

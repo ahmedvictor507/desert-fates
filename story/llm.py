@@ -152,8 +152,9 @@ class OllamaNarrator:
         except Exception as e:
             self.last_error = str(e)
             return text  # fall back to pack prose if the model is unavailable
-        if excerpt and sources.copied_span(out, excerpt):
-            self.last_error = "narration copied the source verbatim; using pack text"
+        # a model trained on the books may recite them: check against the whole source chapters
+        if sources.copied_span(out, excerpt or sources.source_text(beat)):
+            self.last_error = "narration copied the book word for word; using the story's own text"
             out = ""
         out = out or text
         self._cache[key] = out

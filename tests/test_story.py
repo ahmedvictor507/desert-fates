@@ -276,3 +276,10 @@ def test_story_continues_past_an_ending():
     assert not e.done and e.state.beat.startswith("improv_")
     e.choose(1)                                   # "let it rest" leads back to the ending
     assert e.done and e.state.beat == ending_beat
+
+
+def test_narrator_rejects_copying_even_without_book_style(tmp_path, monkeypatch):
+    pack = _sourced_pack(tmp_path, monkeypatch)
+    copy = "Elsewhere a fat man turned a globe of the desert world with his ringed hand."
+    e = StoryEngine(pack, narrator=OllamaNarrator(generate=lambda p: copy))    # excerpt off
+    assert e.text() == pack.beats["a"]["text"]
