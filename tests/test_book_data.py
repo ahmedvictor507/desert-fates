@@ -57,3 +57,14 @@ def test_protagonist_must_be_a_name():
     d = parse_teacher(json.dumps({**T, "protagonist": "You", "speakers": ["you", "Stilgar"]}))
     assert d["protagonist"] == "Stilgar" and d["speakers"] == ["Stilgar"]
     assert parse_teacher(json.dumps({**T, "protagonist": "you", "speakers": []})) is None
+
+
+def test_clean_row_drops_non_people_and_narration_as_dialogue():
+    from training.book_data import clean_row
+    d = clean_row({**T, "speakers": ["the light", "Stilgar", "the Baron"],
+                   "narration": "It moves erratically, as if searching for something. " * 5,
+                   "dialogue": [{"speaker": "the light", "line": "Hello there friend of mine."},
+                                {"speaker": "Stilgar", "line": "It moves erratically, as if searching for something."},
+                                {"speaker": "Stilgar", "line": "Sleep, little ones."}]})
+    assert d["speakers"] == ["Stilgar", "the Baron"]
+    assert [x["line"] for x in d["dialogue"]] == ["Sleep, little ones."]

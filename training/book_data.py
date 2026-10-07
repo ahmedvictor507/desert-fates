@@ -202,11 +202,28 @@ def director_example(prev: dict, d: dict) -> dict | None:
             "task": "director"}
 
 
+def _is_person(name: str) -> bool:
+    """'Stilgar', 'the Baron' yes; 'the light', 'you' no."""
+    return any(ch.isupper() for ch in name) and name.lower() not in _NOT_A_NAME
+
+
+def clean_row(d: dict) -> dict:
+    """Last cleanup before training (applies to teacher rows already saved): speakers must be
+    people, and a dialogue line that just repeats the narration is not dialogue."""
+    from story.sources import copied_span
+    d = dict(d)
+    d["speakers"] = [s for s in d.get("speakers", []) if _is_person(s)]
+    d["dialogue"] = [x for x in d.get("dialogue", []) if _is_person(str(x.get("speaker", "")))
+                     and not copied_span(str(x.get("line", "")), d.get("narration", ""), 6)]
+    return d
+
+
 def task_examples(teacher_rows: list[dict]) -> list[dict]:
     """teacher_rows: [{"id", "book", "chapter", "teacher": {...parsed...}}] in reading order."""
     out, prev = [], None
     for r in teacher_rows:
-        d = r.get("teacher")
+        d = clean_row(r["teacher"]) if r.get("teacher") else None
+        r = {**r, "teacher": d}
         if not d:
             prev = None
             continue
