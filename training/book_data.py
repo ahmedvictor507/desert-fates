@@ -97,12 +97,13 @@ def teacher_prompt(passage: str) -> str:
         "Read the passage, then reply with ONLY a JSON object with these keys:\n"
         '"summary": 2-3 plain sentences: what happens, who is there, what changes.\n'
         '"place": where it happens, a few words.\n'
-        '"protagonist": the name of the point-of-view character.\n'
+        '"protagonist": the NAME of the point-of-view character (a name, never "you").\n'
         '"speakers": names of everyone present who could speak.\n'
         '"narration": the passage rewritten as 100-150 words in SECOND person, present tense, addressed '
         'to the protagonist as "you". Keep the author\'s voice, imagery, vocabulary and inner thoughts, '
         "but do not copy whole sentences. Stop before the protagonist's next decision.\n"
-        '"dialogue": 1-3 short spoken lines from the passage (paraphrased), as [{"speaker": name, "line": words}].\n'
+        '"dialogue": only words a character actually says ALOUD in the passage, reworded in your own words, '
+        'at most 3, as [{"speaker": name, "line": words}]. Never thoughts or narration. [] if nobody speaks.\n'
         '"action": the most important thing the protagonist DOES in this passage, as a first-person '
         'command, e.g. "I refuse the Baron\'s offer".\n'
         '"choice_continue": one short sentence: a bold thing the protagonist could do next.\n'
@@ -111,8 +112,16 @@ def teacher_prompt(passage: str) -> str:
     )
 
 
-def parse_teacher(text: str) -> dict | None:
-    """The teacher's JSON, checked enough to train on; None if unusable."""
+_NOT_A_NAME = {"", "you", "i", "me", "he", "she", "the protagonist", "protagonist", "narrator", "the narrator"}
+
+
+def parse_teacher(text: str, passage: str = "") -> dict | None:
+    """The teacher's JSON, checked enough to train on; None if unusable.
+
+    With the passage given, rows that would teach the model to recite the book are rejected
+    (narration copying 12+ words in a row) and dialogue copying 8+ words is dropped.
+    """
+    from story.sources import copied_span
     m = re.search(r"\{.*\}", text or "", re.S)
     if not m:
         return None
@@ -125,10 +134,19 @@ def parse_teacher(text: str) -> dict | None:
     nar = str(d["narration"]).strip()
     if not 40 <= len(nar.split()) <= 260:
         return None
+    if passage and copied_span(nar, passage, 12):
+        return None
     d["speakers"] = [str(s) for s in d.get("speakers", []) if isinstance(s, (str, int))][:8]
-    d["dialogue"] = [x for x in d.get("dialogue", []) if isinstance(x, dict) and x.get("speaker") and x.get("line")][:3]
+    d["dialogue"] = [x for x in d.get("dialogue", []) if isinstance(x, dict) and x.get("speaker") and x.get("line")
+                     and not (passage and copied_span(str(x["line"]), passage, 8))][:3]
     for k in ("summary", "place", "protagonist", "action", "choice_continue", "choice_other"):
         d[k] = str(d.get(k, "")).strip()
+    if d["protagonist"].lower() in _NOT_A_NAME:      # "You": fall back to someone named, else unusable
+        named = [s for s in d["speakers"] if s.lower() not in _NOT_A_NAME]
+        if not named:
+            return None
+        d["protagonist"] = named[0]
+    d["speakers"] = [s for s in d["speakers"] if s.lower() not in _NOT_A_NAME]
     return d
 
 

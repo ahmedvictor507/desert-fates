@@ -39,3 +39,21 @@ def test_examples_use_the_games_prompts():
             {"id": 2, "book": "b", "teacher": None}, {"id": 3, "book": "c", "teacher": T}]
     ex = task_examples(rows)
     assert [e["task"] for e in ex] == ["narrator", "narrator", "director", "narrator"]
+
+
+def test_teacher_rows_that_teach_reciting_are_rejected():
+    book = ("These were not merely nine-year-old children, they were a natural force, objects of "
+            "veneration and fear. Stilgar watched the light move across the rug in silence.")
+    copied = {**T, "narration": "You think: these were not merely nine-year-old children, they were a natural "
+              "force, objects of veneration and fear. " + "You wait. " * 30}
+    assert parse_teacher(json.dumps(copied), book) is None
+    d = parse_teacher(json.dumps({**T, "dialogue": [
+        {"speaker": "Stilgar", "line": "These were not merely nine-year-old children, they were a natural force"},
+        {"speaker": "Stilgar", "line": "Sleep, little ones."}]}), book)
+    assert [x["line"] for x in d["dialogue"]] == ["Sleep, little ones."]
+
+
+def test_protagonist_must_be_a_name():
+    d = parse_teacher(json.dumps({**T, "protagonist": "You", "speakers": ["you", "Stilgar"]}))
+    assert d["protagonist"] == "Stilgar" and d["speakers"] == ["Stilgar"]
+    assert parse_teacher(json.dumps({**T, "protagonist": "you", "speakers": []})) is None

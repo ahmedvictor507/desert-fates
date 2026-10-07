@@ -70,7 +70,7 @@ def run(a):
         for i in range(0, len(todo), a.batch):
             batch = todo[i:i + a.batch]
             for r, text in zip(batch, generate([teacher_prompt(r["text"]) for r in batch])):
-                parsed = parse_teacher(text)
+                parsed = parse_teacher(text, r["text"])
                 ok += parsed is not None
                 f.write(json.dumps({"id": r["id"], "book": r["book"], "chapter": r["chapter"],
                                     "teacher": parsed}, ensure_ascii=False) + "\n")
