@@ -13,6 +13,7 @@ check the first test run. The resulting adapter is trained on copyrighted books:
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import glob
 import json
 import os
@@ -29,6 +30,21 @@ def task_rows(path: str, tok) -> list[dict]:
                                          add_generation_prompt=True, enable_thinking=False)
         rows.append({"prompt": prompt, "completion": answer + tok.eos_token})
     return rows
+
+
+def config_kwargs(config_cls, kw: dict) -> dict:
+    """Fit our settings to the installed TRL/transformers: Colab installs the latest, and
+    arguments get renamed. transformers v5 dropped warmup_ratio (warmup_steps takes a float
+    ratio instead); anything else the config no longer knows is reported and left out."""
+    fields = {f.name: f for f in dataclasses.fields(config_cls)}
+    if "warmup_ratio" in kw and "warmup_ratio" not in fields:
+        ratio = kw.pop("warmup_ratio")
+        if "float" in str(fields["warmup_steps"].type):
+            kw["warmup_steps"] = ratio
+    unknown = [k for k in kw if k not in fields]
+    if unknown:
+        print(f"note: this TRL version has no {', '.join(unknown)}; skipping", flush=True)
+    return {k: v for k, v in kw.items() if k in fields}
 
 
 def main():
@@ -72,12 +88,13 @@ def main():
         extra = {"completion_only_loss": True}
     print(f"{a.stage}: {len(ds)} examples", flush=True)
 
-    cfg = SFTConfig(output_dir=a.out, num_train_epochs=a.epochs, max_steps=a.max_steps,
-                    per_device_train_batch_size=a.batch, gradient_accumulation_steps=a.grad_accum,
-                    learning_rate=a.lr, lr_scheduler_type="cosine", warmup_ratio=0.03,
-                    logging_steps=10, save_steps=a.save_steps, save_total_limit=2,
-                    fp16=True, gradient_checkpointing=True, max_length=a.max_length,
-                    report_to="none", **extra)
+    cfg = SFTConfig(**config_kwargs(SFTConfig, dict(
+        output_dir=a.out, num_train_epochs=a.epochs, max_steps=a.max_steps,
+        per_device_train_batch_size=a.batch, gradient_accumulation_steps=a.grad_accum,
+        learning_rate=a.lr, lr_scheduler_type="cosine", warmup_ratio=0.03,
+        logging_steps=10, save_steps=a.save_steps, save_total_limit=2,
+        fp16=True, gradient_checkpointing=True, max_length=a.max_length,
+        report_to="none", **extra)))
     trainer = SFTTrainer(model=model, args=cfg, train_dataset=ds, processing_class=tok,
                          peft_config=peft_config)
     resume = bool(glob.glob(os.path.join(a.out, "checkpoint-*")))

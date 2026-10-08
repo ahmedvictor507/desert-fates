@@ -52,3 +52,23 @@ def test_dataset_builds():
     rows = dataset.build("salt_exile", per_beat=3)
     assert rows and {r["kind"] for r in rows} <= {"plausible", "impossible", "exploit"}
     assert all("Player action:" in r["prompt"] for r in rows)
+
+
+def test_config_kwargs_fits_old_and_new_transformers():
+    import dataclasses
+    from training.sft_train import config_kwargs
+
+    @dataclasses.dataclass
+    class Old:                     # transformers 4.x
+        output_dir: str = ""
+        warmup_ratio: float = 0.0
+        warmup_steps: int = 0
+
+    @dataclasses.dataclass
+    class New:                     # transformers 5: ratio folded into warmup_steps
+        output_dir: str = ""
+        warmup_steps: float = 0
+
+    kw = {"output_dir": "x", "warmup_ratio": 0.03, "gone_arg": 1}
+    assert config_kwargs(Old, dict(kw)) == {"output_dir": "x", "warmup_ratio": 0.03}
+    assert config_kwargs(New, dict(kw)) == {"output_dir": "x", "warmup_steps": 0.03}
