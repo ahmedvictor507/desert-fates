@@ -72,3 +72,18 @@ def test_config_kwargs_fits_old_and_new_transformers():
     kw = {"output_dir": "x", "warmup_ratio": 0.03, "gone_arg": 1}
     assert config_kwargs(Old, dict(kw)) == {"output_dir": "x", "warmup_ratio": 0.03}
     assert config_kwargs(New, dict(kw)) == {"output_dir": "x", "warmup_steps": 0.03}
+
+
+def test_export_ships_the_base_tokenizer_files(tmp_path):
+    from training.export_model import copy_tokenizer
+    base, out = tmp_path / "base", tmp_path / "out"
+    base.mkdir(), out.mkdir()
+    for name in ("tokenizer.json", "tokenizer_config.json", "vocab.json", "merges.txt"):
+        (base / name).write_text("original " + name)
+    (out / "model.safetensors").write_text("weights")
+    (out / "tokenizer_config.json").write_text("re-saved by a newer transformers")
+    (out / "special_tokens_map.json").write_text("{}")
+    copy_tokenizer(str(base), str(out))
+    assert (out / "tokenizer_config.json").read_text() == "original tokenizer_config.json"
+    assert not (out / "special_tokens_map.json").exists()
+    assert (out / "model.safetensors").read_text() == "weights"
