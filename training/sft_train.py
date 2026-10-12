@@ -62,6 +62,10 @@ def main():
     ap.add_argument("--grad-accum", type=int, default=8)
     ap.add_argument("--save-steps", type=int, default=50)
     a = ap.parse_args()
+    if not os.path.exists(a.data):               # check before the slow model download
+        step = "passages" if a.stage == "domain" else "tasks"
+        raise SystemExit(f"{a.data} not found. Colab probably reset: run the setup cells again, "
+                         f"then `python -m training.book_data {step} ...` (the notebook cell before this step).")
 
     import torch
     from datasets import Dataset
